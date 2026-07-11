@@ -31,7 +31,8 @@ const STARTER_MESSAGES = [
   },
 ];
 
-const STORAGE_KEY = "endepth-student-prototype-v3";
+const STORAGE_KEY = "endepth-student-prototype-v4";
+const PILOT_CODE_STORAGE_KEY = "endepth-pilot-access-code";
 
 const SAMPLE_STUDENT_STATE = {
   initialResponse:
@@ -299,78 +300,6 @@ function buildSnapshot({
   return [grounding, complexity, inquiry, movement];
 }
 
-function coachQuestion({ text, move, evidence, significance }) {
-  const trimmed = text.trim();
-  const lower = trimmed.toLowerCase();
-
-  if (move === "evidence") {
-    if (wordCount(evidence) < 5) {
-      return {
-        move: "Ground in the text",
-        text: "Which exact word, action, contrast, or silence in the scene gives you the strongest reason to make that claim?",
-      };
-    }
-    return {
-      move: "Explain significance",
-      text: "You have identified a moment. What does that detail reveal that a plot summary would miss?",
-    };
-  }
-
-  if (move === "complicate") {
-    return {
-      move: "Test the interpretation",
-      text: "What part of the scene resists your interpretation—or supports a different reading—and how would you account for it?",
-    };
-  }
-
-  if (move === "connect") {
-    return {
-      move: "Build a pattern",
-      text: "Where else in the text do you see this same tension, and what changes when the two moments are read together?",
-    };
-  }
-
-  if (move === "clarify") {
-    return {
-      move: "Clarify the claim",
-      text: "What exactly are you claiming about the character's deeper priority? State it in one sentence without using the word “because.”",
-    };
-  }
-
-  if (lower.includes("i don't know") || lower.includes("not sure")) {
-    return {
-      move: "Use uncertainty",
-      text: "Name the two possibilities you are caught between. What evidence makes each one plausible?",
-    };
-  }
-
-  if (trimmed.endsWith("?")) {
-    return {
-      move: "Test the question",
-      text: "What specific moment would the group need to examine in order to answer that question well?",
-    };
-  }
-
-  if (wordCount(evidence) < 5) {
-    return {
-      move: "Ground in the text",
-      text: "Which concrete detail in the scene carries the most weight for this interpretation?",
-    };
-  }
-
-  if (wordCount(significance) < 8) {
-    return {
-      move: "Explain significance",
-      text: "Why does that detail matter to your interpretation rather than simply confirming what happened?",
-    };
-  }
-
-  return {
-    move: "Push one layer deeper",
-    text: "What assumption is holding your interpretation together, and where might the text challenge that assumption?",
-  };
-}
-
 function LogoMark() {
   return (
     <svg
@@ -524,7 +453,7 @@ function AppHeader({ view, setView, onReset }) {
         </nav>
 
         <div className="topbar-actions">
-          <Pill tone="orange">Interactive prototype</Pill>
+          <Pill tone="orange">Live coach prototype</Pill>
           {view === "student" ? (
             <button className="icon-button" type="button" onClick={onReset}>
               <Icon name="rotate" />
@@ -773,6 +702,12 @@ function StudentWorkspace({ resetToken }) {
   const [savedAt, setSavedAt] = useState("Saved in this browser");
   const [isSaving, setIsSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [isCoachThinking, setIsCoachThinking] = useState(false);
+  const [coachError, setCoachError] = useState("");
+  const [pilotCode, setPilotCode] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY) || "";
+  });
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -789,6 +724,8 @@ function StudentWorkspace({ resetToken }) {
     setOpenQuestion(SAMPLE_STUDENT_STATE.openQuestion);
     setSubmitted(false);
     setNotice("Sample workspace restored.");
+    setCoachError("");
+    setIsCoachThinking(false);
     window.localStorage.removeItem(STORAGE_KEY);
   }, [resetToken]);
 
@@ -902,30 +839,101 @@ function StudentWorkspace({ resetToken }) {
     }
   }
 
-  function sendMessage() {
+  function requestPilotCode() {
+    const entered = window.prompt(
+      "Enter the EnDepth pilot access code. Your teacher will provide it.",
+      pilotCode
+    );
+
+    if (entered === null) return "";
+
+    const cleanCode = entered.trim();
+    if (!cleanCode) {
+      setCoachError("A pilot access code is required to use the live coach.");
+      return "";
+    }
+
+    window.sessionStorage.setItem(PILOT_CODE_STORAGE_KEY, cleanCode);
+    setPilotCode(cleanCode);
+    setCoachError("");
+    return cleanCode;
+  }
+
+  async function sendMessage() {
     const text = newMessage.trim();
-    if (!text) return;
+    if (!text || isCoachThinking) return;
+
+    const accessCode = pilotCode.trim() || requestPilotCode();
+    if (!accessCode) return;
 
     const studentMessage = {
       id: Date.now(),
       role: "student",
       text,
     };
-    const nextQuestion = coachQuestion({
-      text,
-      move: selectedMove,
-      evidence,
-      significance,
-    });
-    const coachMessage = {
-      id: Date.now() + 1,
-      role: "coach",
-      text: nextQuestion.text,
-      move: nextQuestion.move,
-    };
+    const conversation = [...messages, studentMessage];
 
-    setMessages((current) => [...current, studentMessage, coachMessage]);
+    setMessages(conversation);
     setNewMessage("");
+    setCoachError("");
+    setIsCoachThinking(true);
+
+    try {
+      const response = await fetch("/api/coach", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          accessCode,
+          assignment: ASSIGNMENT,
+          initialResponse,
+          selectedMove,
+          evidence,
+          significance,
+          messages: conversation.slice(-10).map(({ role, text: messageText }) => ({
+            role,
+            text: messageText,
+          })),
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.sessionStorage.removeItem(PILOT_CODE_STORAGE_KEY);
+          setPilotCode("");
+        }
+        const error = new Error(
+          data.error || "The coach could not respond. Please try again."
+        );
+        error.status = response.status;
+        throw error;
+      }
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: Date.now() + 1,
+          role: "coach",
+          text: data.reply,
+          move: data.move || "Socratic question",
+        },
+      ]);
+    } catch (error) {
+      setMessages((current) =>
+        current.filter((message) => message.id !== studentMessage.id)
+      );
+      setNewMessage(text);
+      setCoachError(
+        error.status === 401
+          ? "That pilot code was not accepted. Enter the current code and try again."
+          : error.message || "The coach could not respond. Please try again."
+      );
+    } finally {
+      setIsCoachThinking(false);
+    }
   }
 
   function beginCardFromThinking() {
@@ -1029,7 +1037,22 @@ function StudentWorkspace({ resetToken }) {
                     <div className="card-kicker">One question at a time</div>
                     <h2>Use the Socratic coach</h2>
                   </div>
-                  <Pill tone="neutral">Demo coach · no live AI</Pill>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "flex-end",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <Pill tone={pilotCode ? "green" : "orange"} icon={pilotCode ? "check" : undefined}>
+                      {pilotCode ? "Live AI ready" : "Pilot code required"}
+                    </Pill>
+                    <button className="text-button" type="button" onClick={requestPilotCode}>
+                      {pilotCode ? "Change code" : "Enter code"}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="move-picker">
@@ -1068,6 +1091,15 @@ function StudentWorkspace({ resetToken }) {
                       </div>
                     </div>
                   ))}
+                  {isCoachThinking ? (
+                    <div className="chat-row coach">
+                      <div className="coach-avatar">E</div>
+                      <div className="message-bubble coach">
+                        <small>Thinking with you</small>
+                        <p>EnDepth is choosing the most useful next question…</p>
+                      </div>
+                    </div>
+                  ) : null}
                   <div ref={chatEndRef} />
                 </div>
 
@@ -1076,13 +1108,18 @@ function StudentWorkspace({ resetToken }) {
                     value={newMessage}
                     onChange={(event) => setNewMessage(event.target.value)}
                     onKeyDown={(event) => {
-                      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                      if (
+                        !isCoachThinking &&
+                        (event.metaKey || event.ctrlKey) &&
+                        event.key === "Enter"
+                      ) {
                         event.preventDefault();
                         sendMessage();
                       }
                     }}
                     rows={3}
                     placeholder="Respond with your own thinking…"
+                    disabled={isCoachThinking}
                   />
                   <div className="composer-footer">
                     <span>⌘/Ctrl + Enter to send</span>
@@ -1090,12 +1127,14 @@ function StudentWorkspace({ resetToken }) {
                       className="primary-button compact"
                       type="button"
                       onClick={sendMessage}
-                      disabled={!newMessage.trim()}
+                      disabled={!newMessage.trim() || isCoachThinking}
                     >
-                      Send thinking <Icon name="arrow" />
+                      {isCoachThinking ? "Thinking…" : "Send thinking"}
+                      {!isCoachThinking ? <Icon name="arrow" /> : null}
                     </button>
                   </div>
                 </div>
+                {coachError ? <div className="inline-notice">{coachError}</div> : null}
               </div>
             </section>
           ) : null}
@@ -1217,8 +1256,8 @@ function StudentWorkspace({ resetToken }) {
                   </strong>
                   <span>
                     {submitted
-                      ? "A real version would now make this card and process visible to the teacher."
-                      : "Nothing is sent anywhere in this front-end prototype."}
+                      ? "Submission is still simulated; a shared teacher database has not been connected yet."
+                      : "Drafts stay in this browser. Coach context is sent securely only when you request a live question."}
                   </span>
                 </div>
                 <button
@@ -1541,8 +1580,9 @@ export default function App() {
           <span>EnDepth interactive prototype</span>
         </div>
         <p>
-          Demonstration only. The coach responses and dashboard data are mocked;
-          no student data is transmitted.
+          Live-coach prototype. Student drafts remain in this browser; coach
+          requests use OpenAI through a protected server route. Teacher dashboard
+          records are fictional.
         </p>
       </footer>
     </div>
