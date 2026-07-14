@@ -1,1 +1,672 @@
-import e,{useEffect as W,useMemo as de,useRef as le,useState as n}from"react";import{FieldHeader as F,Icon as d,LogoMark as be,Pill as E,ProgressSteps as fe,SignalCard as we}from"./endepthUI";import{MOVE_OPTIONS as ye,PILOT_CODE_STORAGE_KEY as K,buildSnapshot as Ne,initialStudentStateFor as ke,isShowcaseAssignment as Ce,loadStudentState as ce,stableAssignmentKey as Se,studentStorageKey as ue,wordCount as b}from"./endepthConfig";function xe({resetToken:U,assignment:s}){const f=Se(s),a=le(ce(s)).current,[t,H]=n(a.initialResponse),[I,j]=n(a.coachUnlocked),[l,S]=n(a.messages),[x,P]=n(a.newMessage),[q,Y]=n(a.selectedMove),[r,O]=n(a.evidence),[c,_]=n(a.significance),[m,B]=n(a.claim),[v,G]=n(a.complication),[h,Q]=n(a.openQuestion),[u,V]=n(!!a.submitted),[me,z]=n("Saved in this browser"),[ve,J]=n(!1),[X,$]=n(""),[w,A]=n(!1),[Z,T]=n(""),[N,R]=n(()=>typeof window>"u"?"":window.sessionStorage.getItem(K)||""),ee=le(null),[ie,se]=n(f);function ne(i,o=""){H(i.initialResponse),j(i.coachUnlocked),S(i.messages.map(D=>({...D}))),P(i.newMessage),Y(i.selectedMove),O(i.evidence),_(i.significance),B(i.claim),G(i.complication),Q(i.openQuestion),V(!!i.submitted),$(o),T(""),A(!1)}W(()=>{const i=ce(s);ne(i,"Workspace loaded for this assignment."),se(f)},[f]),W(()=>{if(U===0)return;const i=ke(s);window.localStorage.removeItem(ue(s)),ne(i,Ce(s)?"Showcase workspace restored.":"Workspace cleared for this assignment."),se(f)},[U,f]),W(()=>{if(ie!==f)return;J(!0);const i=window.setTimeout(()=>{try{window.localStorage.setItem(ue(s),JSON.stringify({initialResponse:t,coachUnlocked:I,messages:l,newMessage:x,selectedMove:q,evidence:r,significance:c,claim:m,complication:v,openQuestion:h,submitted:u})),z(`Saved in this browser at ${new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`)}catch{z("Preview changes could not be saved")}finally{J(!1)}},500);return()=>window.clearTimeout(i)},[t,I,l,x,q,r,c,m,v,h,u,f,ie]),W(()=>{ee.current?.scrollIntoView({behavior:"smooth"})},[l]);const L=de(()=>Ne({initialResponse:t,evidence:r,significance:c,claim:m,complication:v,openQuestion:h,messages:l}),[t,r,c,m,v,h,l]),p=de(()=>({initial:b(t)>=40,evidence:b(r)>=8&&b(c)>=8,complication:b(v)>=8,card:b(m)>=10&&b(r)>=8&&b(v)>=8&&h.trim().endsWith("?")}),[t,r,c,v,m,h]),M=Object.values(p).filter(Boolean).length,oe=l.filter(i=>i.role==="coach"&&i.countsTowardLimit).length,k=oe>=s.maxCoachQuestions;function he(){if(b(t)<40){$("Write at least 40 words of your own thinking before opening the coach.");return}j(!0),$(""),l.length===0&&S([{id:Date.now(),role:"coach",move:"Clarify the claim",text:"Which part of your interpretation feels least settled, and what exact detail is creating that uncertainty?"}])}function ae(){const i=window.prompt("Enter the EnDepth pilot access code. Your teacher will provide it.",N);if(i===null)return"";const o=i.trim();return o?(window.sessionStorage.setItem(K,o),R(o),T(""),o):(T("A pilot access code is required to use the live coach."),"")}async function te(){const i=x.trim();if(!i||w||k)return;const o=N.trim()||ae();if(!o)return;const D={id:Date.now(),role:"student",text:i},re=[...l,D];S(re),P(""),T(""),A(!0);try{const y=await fetch("/api/coach",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accessCode:o,assignment:s,initialResponse:t,selectedMove:q,evidence:r,significance:c,messages:re.slice(-10).map(({role:g,text:ge})=>({role:g,text:ge}))})}),C=await y.json().catch(()=>({}));if(!y.ok){y.status===401&&(window.sessionStorage.removeItem(K),R(""));const g=new Error(C.error||"The coach could not respond. Please try again.");throw g.status=y.status,g}S(g=>[...g,{id:Date.now()+1,role:"coach",text:C.reply,move:C.move||"Socratic question",countsTowardLimit:!C.safetyFlag}])}catch(y){S(C=>C.filter(g=>g.id!==D.id)),P(i),T(y.status===401?"That pilot code was not accepted. Enter the current code and try again.":y.message||"The coach could not respond. Please try again.")}finally{A(!1)}}function pe(){m.trim()||B(t.split(/[.!?]/)[0]||""),h.trim()||Q("What remains genuinely unresolved about this question?"),document.getElementById("harkness-card")?.scrollIntoView({behavior:"smooth",block:"start"})}return e.createElement("main",{className:"page student-page"},e.createElement("section",{className:"workspace-banner"},e.createElement("div",null,e.createElement("div",{className:"banner-meta"},e.createElement(E,{tone:"orange"},s.course),e.createElement("span",null,s.date)),e.createElement("h1",null,s.title)),e.createElement("div",{className:"student-identity"},e.createElement("div",{className:"student-avatar"},"DS"),e.createElement("div",null,e.createElement("strong",null,"Demo Student"),e.createElement("span",null,ve?"Saving…":me)),e.createElement(d,{name:"save"}))),e.createElement(fe,{readiness:p}),e.createElement("div",{className:"student-layout"},e.createElement("div",{className:"student-main-column"},e.createElement("section",{className:"content-card assignment-card"},e.createElement("div",{className:"card-kicker"},e.createElement(d,{name:"book"})," Assignment"),e.createElement("h2",null,"Entry question"),e.createElement("p",{className:"assignment-prompt"},s.prompt),e.createElement("div",{className:"assignment-meta-grid"},e.createElement("div",null,e.createElement("span",null,"Teacher"),e.createElement("strong",null,s.teacherName)),e.createElement("div",null,e.createElement("span",null,"Course"),e.createElement("strong",null,s.course))),e.createElement("div",{className:"passage-box"},e.createElement("span",null,s.sourceTitle),e.createElement("p",null,"“",s.passage,"”")),e.createElement("dl",{className:"student-instructions"},e.createElement("div",null,e.createElement("dt",null,"Directions"),e.createElement("dd",null,s.directions)),e.createElement("div",null,e.createElement("dt",null,"Evidence requirement"),e.createElement("dd",null,s.evidenceRequirement)),e.createElement("div",null,e.createElement("dt",null,"Coaching focus"),e.createElement("dd",null,s.coachingFocus))),e.createElement("div",{className:"assignment-note"},e.createElement(d,{name:"shield"}),e.createElement("span",null,"Begin with your own interpretation. The coach will not supply a thesis, quotation, or paragraph."))),e.createElement("section",{className:"content-card numbered-card"},e.createElement("div",{className:"number-badge"},"1"),e.createElement("div",{className:"numbered-card-content"},e.createElement("div",{className:"card-heading-row"},e.createElement("div",null,e.createElement("div",{className:"card-kicker"},"Before the coach appears"),e.createElement("h2",null,"Begin with your own thinking")),p.initial?e.createElement(E,{tone:"green",icon:"check"},"Complete"):null),e.createElement(F,{label:"Initial response",helper:"What do you notice, suspect, or find difficult to explain?",value:t,minimum:40}),e.createElement("textarea",{className:"large-textarea",value:t,onChange:i=>H(i.target.value),rows:7}),e.createElement("div",{className:"field-footer"},e.createElement("span",null,"Your first version will remain visible so you and your teacher can see how the thinking changes."),I?e.createElement("span",{className:"unlocked-label"},e.createElement(d,{name:"check"})," Coach unlocked"):e.createElement("button",{className:"primary-button compact",type:"button",onClick:he},"Open the coach ",e.createElement(d,{name:"arrow"}))),X?e.createElement("div",{className:"inline-notice"},X):null)),I?e.createElement("section",{className:"content-card numbered-card coach-section"},e.createElement("div",{className:"number-badge"},"2"),e.createElement("div",{className:"numbered-card-content"},e.createElement("div",{className:"card-heading-row"},e.createElement("div",null,e.createElement("div",{className:"card-kicker"},"One question at a time"),e.createElement("h2",null,"Use the Socratic coach")),e.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:10,flexWrap:"wrap"}},e.createElement(E,{tone:"orange"},k?`${s.maxCoachQuestions} of ${s.maxCoachQuestions} complete`:`Question ${oe+1} of ${s.maxCoachQuestions}`),e.createElement(E,{tone:N?"green":"orange",icon:N?"check":void 0},N?"Live AI ready":"Pilot code required"),e.createElement("button",{className:"text-button",type:"button",onClick:ae},N?"Change code":"Enter code"))),e.createElement("div",{className:"move-picker"},e.createElement("div",{className:"move-picker-heading"},e.createElement("span",null,"I need help to…"),e.createElement("small",null,"Choose the kind of thinking move you need.")),e.createElement("div",{className:"move-grid"},ye.map(i=>e.createElement("button",{type:"button",key:i.id,className:`move-button ${q===i.id?"selected":""}`,onClick:()=>Y(i.id)},e.createElement("span",null,i.label),e.createElement("small",null,i.short))))),e.createElement("div",{className:"chat-window","aria-live":"polite"},e.createElement("div",{className:"chat-date"},"Preparation conversation"),l.map(i=>e.createElement("div",{className:`chat-row ${i.role}`,key:i.id},i.role==="coach"?e.createElement("div",{className:"coach-avatar"},"E"):null,e.createElement("div",{className:`message-bubble ${i.role}`},i.move?e.createElement("small",null,i.move):null,e.createElement("p",null,i.text)))),w?e.createElement("div",{className:"chat-row coach"},e.createElement("div",{className:"coach-avatar"},"E"),e.createElement("div",{className:"message-bubble coach"},e.createElement("small",null,"Thinking with you"),e.createElement("p",null,"EnDepth is choosing the most useful next question…"))):null,e.createElement("div",{ref:ee})),e.createElement("div",{className:"composer"},e.createElement("textarea",{value:x,onChange:i=>P(i.target.value),onKeyDown:i=>{!w&&(i.metaKey||i.ctrlKey)&&i.key==="Enter"&&(i.preventDefault(),te())},rows:3,placeholder:k?"The coaching conversation is complete. Finish your preparation card.":"Respond with your own thinking…",disabled:w||k}),e.createElement("div",{className:"composer-footer"},e.createElement("span",null,"⌘/Ctrl + Enter to send"),e.createElement("button",{className:"primary-button compact",type:"button",onClick:te,disabled:!x.trim()||w||k},w?"Thinking…":"Send thinking",w?null:e.createElement(d,{name:"arrow"})))),k?e.createElement("div",{className:"inline-notice success-notice"},"The coaching conversation is complete. Finish your Harkness Preparation Card and preserve the question you most want the group to pursue."):null,Z?e.createElement("div",{className:"inline-notice"},Z):null)):null,e.createElement("section",{className:"content-card numbered-card"},e.createElement("div",{className:"number-badge"},"3"),e.createElement("div",{className:"numbered-card-content"},e.createElement("div",{className:"card-heading-row"},e.createElement("div",null,e.createElement("div",{className:"card-kicker"},"Make the interpretation accountable"),e.createElement("h2",null,"Ground the idea in the text")),p.evidence?e.createElement(E,{tone:"green",icon:"check"},"Grounded"):null),e.createElement("div",{className:"field-stack"},e.createElement("div",null,e.createElement(F,{label:"Exact textual moment",helper:"Paste a short quotation or describe the precise action, contrast, or pattern.",value:r,minimum:8}),e.createElement("textarea",{value:r,onChange:i=>O(i.target.value),rows:4})),e.createElement("div",null,e.createElement(F,{label:"Why this detail matters",helper:"Explain what the moment adds to or complicates about your interpretation.",value:c,minimum:8}),e.createElement("textarea",{value:c,onChange:i=>_(i.target.value),rows:4}))))),e.createElement("section",{className:"content-card numbered-card",id:"harkness-card"},e.createElement("div",{className:"number-badge"},"4"),e.createElement("div",{className:"numbered-card-content"},e.createElement("div",{className:"card-heading-row"},e.createElement("div",null,e.createElement("div",{className:"card-kicker"},"The classroom artifact"),e.createElement("h2",null,"Build your Harkness Preparation Card")),e.createElement("button",{className:"text-button",type:"button",onClick:pe},"Use my thinking to begin ",e.createElement(d,{name:"chevron",size:16}))),e.createElement("div",{className:"prep-card"},e.createElement("div",{className:"prep-card-header"},e.createElement("div",null,e.createElement("span",null,"Harkness Preparation Card"),e.createElement("strong",null,s.title)),e.createElement("div",{className:"mini-brand"},e.createElement(be,null)," EnDepth")),e.createElement("div",{className:"prep-field claim-field"},e.createElement("span",null,"My provisional claim"),e.createElement("textarea",{value:m,onChange:i=>B(i.target.value),rows:3,placeholder:"What do you currently think?"})),e.createElement("div",{className:"prep-grid"},e.createElement("div",{className:"prep-field"},e.createElement("span",null,"My textual evidence"),e.createElement("textarea",{value:r,onChange:i=>O(i.target.value),rows:5,placeholder:"What precise moment can you bring into the circle?"})),e.createElement("div",{className:"prep-field"},e.createElement("span",null,"The complication"),e.createElement("textarea",{value:v,onChange:i=>G(i.target.value),rows:5,placeholder:"What keeps the interpretation from being simple?"}))),e.createElement("div",{className:"prep-field question-field"},e.createElement("span",null,"My open question"),e.createElement("textarea",{value:h,onChange:i=>Q(i.target.value),rows:3,placeholder:"What do you genuinely want the group to explore?"}))),e.createElement("div",{className:`submission-row ${u?"submitted":""}`},e.createElement("div",null,e.createElement("strong",null,u?"Marked submitted in this browser":M===4?"Ready for discussion":`${M} of 4 preparation moves visible`),e.createElement("span",null,u?"Submission is still simulated; a shared teacher database has not been connected yet.":"Drafts stay in this browser. Coach context is sent securely only when you request a live question.")),e.createElement("button",{className:u?"secondary-button":"primary-button",type:"button",disabled:!u&&M<4,onClick:()=>V(i=>!i)},u?"Reopen preparation":"Submit preparation",e.createElement(d,{name:u?"rotate":"check"}))))),e.createElement("aside",{className:"student-sidebar"},e.createElement("section",{className:"sidebar-card snapshot-card"},e.createElement("div",{className:"sidebar-heading"},e.createElement("div",null,e.createElement("div",{className:"card-kicker"},"Live qualitative feedback"),e.createElement("h2",null,"Thinking Snapshot")),e.createElement("div",{className:"snapshot-ring"},e.createElement("span",null,M),e.createElement("small",null,"/ 4 moves"))),e.createElement("p",{className:"sidebar-intro"},"This is not a grade. It shows what your preparation currently makes visible and what to work on next."),e.createElement("div",{className:"signal-list"},L.map(i=>e.createElement(we,{signal:i,key:i.label})))),e.createElement("section",{className:"sidebar-card next-move-card"},e.createElement("div",{className:"next-move-icon"},e.createElement(d,{name:"spark"})),e.createElement("div",null,e.createElement("span",null,"Best next move"),e.createElement("strong",null,L.find(i=>i.state==="Beginning")?.note||L.find(i=>i.state==="Developing")?.note||"Read your card aloud and decide which question you most want the circle to pursue."))),e.createElement("section",{className:"sidebar-card checklist-card"},e.createElement("div",{className:"sidebar-heading compact-heading"},e.createElement("div",null,e.createElement("div",{className:"card-kicker"},"Before you submit"),e.createElement("h2",null,"Readiness check"))),e.createElement("div",{className:"readiness-list"},[[p.initial,"I began with my own interpretation."],[p.evidence,"I named a precise textual moment and its significance."],[p.complication,"I identified what makes the idea less simple."],[p.card,"I have a claim, evidence, complication, and open question."]].map(([i,o])=>e.createElement("div",{className:i?"complete":"",key:o},e.createElement("span",null,i?e.createElement(d,{name:"check",size:14}):""),e.createElement("p",null,o))))),e.createElement("section",{className:"sidebar-card transparency-card"},e.createElement(d,{name:"eye"}),e.createElement("div",null,e.createElement("strong",null,"What “private” means here"),e.createElement("p",null,"Your classmates cannot see this workspace. In a real pilot, your teacher could review your submitted preparation and conversation history."))))))}export{xe as default};
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  FieldHeader,
+  Icon,
+  LogoMark,
+  Pill,
+  ProgressSteps,
+  SignalCard,
+} from "./endepthUI";
+import {
+  MOVE_OPTIONS,
+  PILOT_CODE_STORAGE_KEY,
+  buildSnapshot,
+  initialStudentStateFor,
+  isShowcaseAssignment,
+  loadStudentState,
+  stableAssignmentKey,
+  studentStorageKey,
+  wordCount,
+} from "./endepthConfig";
+
+export default function StudentWorkspace({ resetToken, assignment }) {
+  const assignmentSignature = stableAssignmentKey(assignment);
+  const initialState = useRef(loadStudentState(assignment)).current;
+
+  const [initialResponse, setInitialResponse] = useState(initialState.initialResponse);
+  const [coachUnlocked, setCoachUnlocked] = useState(initialState.coachUnlocked);
+  const [messages, setMessages] = useState(initialState.messages);
+  const [newMessage, setNewMessage] = useState(initialState.newMessage);
+  const [selectedMove, setSelectedMove] = useState(initialState.selectedMove);
+  const [evidence, setEvidence] = useState(initialState.evidence);
+  const [significance, setSignificance] = useState(initialState.significance);
+  const [claim, setClaim] = useState(initialState.claim);
+  const [complication, setComplication] = useState(initialState.complication);
+  const [openQuestion, setOpenQuestion] = useState(initialState.openQuestion);
+  const [submitted, setSubmitted] = useState(Boolean(initialState.submitted));
+  const [savedAt, setSavedAt] = useState("Saved in this browser");
+  const [isSaving, setIsSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [isCoachThinking, setIsCoachThinking] = useState(false);
+  const [coachError, setCoachError] = useState("");
+  const [hydratedSignature, setHydratedSignature] = useState(assignmentSignature);
+  const [pilotCode, setPilotCode] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY) || "";
+  });
+  const chatEndRef = useRef(null);
+
+  function applyStudentState(nextState, nextNotice = "") {
+    setInitialResponse(nextState.initialResponse);
+    setCoachUnlocked(nextState.coachUnlocked);
+    setMessages(nextState.messages.map((message) => ({ ...message })));
+    setNewMessage(nextState.newMessage);
+    setSelectedMove(nextState.selectedMove);
+    setEvidence(nextState.evidence);
+    setSignificance(nextState.significance);
+    setClaim(nextState.claim);
+    setComplication(nextState.complication);
+    setOpenQuestion(nextState.openQuestion);
+    setSubmitted(Boolean(nextState.submitted));
+    setNotice(nextNotice);
+    setCoachError("");
+    setIsCoachThinking(false);
+  }
+
+  useEffect(() => {
+    applyStudentState(
+      loadStudentState(assignment),
+      "Workspace loaded for this assignment."
+    );
+    setHydratedSignature(assignmentSignature);
+  }, [assignmentSignature]);
+
+  useEffect(() => {
+    if (resetToken === 0) return;
+    window.localStorage.removeItem(studentStorageKey(assignment));
+    applyStudentState(
+      initialStudentStateFor(assignment),
+      isShowcaseAssignment(assignment)
+        ? "Showcase workspace restored."
+        : "Workspace cleared for this assignment."
+    );
+    setHydratedSignature(assignmentSignature);
+  }, [resetToken, assignmentSignature]);
+
+  useEffect(() => {
+    if (hydratedSignature !== assignmentSignature) return undefined;
+    setIsSaving(true);
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          studentStorageKey(assignment),
+          JSON.stringify({
+            initialResponse,
+            coachUnlocked,
+            messages,
+            newMessage,
+            selectedMove,
+            evidence,
+            significance,
+            claim,
+            complication,
+            openQuestion,
+            submitted,
+          })
+        );
+        setSavedAt(
+          `Saved in this browser at ${new Date().toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}`
+        );
+      } catch {
+        setSavedAt("Preview changes could not be saved");
+      } finally {
+        setIsSaving(false);
+      }
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    initialResponse,
+    coachUnlocked,
+    messages,
+    newMessage,
+    selectedMove,
+    evidence,
+    significance,
+    claim,
+    complication,
+    openQuestion,
+    submitted,
+    assignmentSignature,
+    hydratedSignature,
+  ]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const snapshot = useMemo(
+    () =>
+      buildSnapshot({
+        initialResponse,
+        evidence,
+        significance,
+        claim,
+        complication,
+        openQuestion,
+        messages,
+      }),
+    [
+      initialResponse,
+      evidence,
+      significance,
+      claim,
+      complication,
+      openQuestion,
+      messages,
+    ]
+  );
+
+  const readiness = useMemo(
+    () => ({
+      initial: wordCount(initialResponse) >= 40,
+      evidence: wordCount(evidence) >= 8 && wordCount(significance) >= 8,
+      complication: wordCount(complication) >= 8,
+      card:
+        wordCount(claim) >= 10 &&
+        wordCount(evidence) >= 8 &&
+        wordCount(complication) >= 8 &&
+        openQuestion.trim().endsWith("?"),
+    }),
+    [initialResponse, evidence, significance, complication, claim, openQuestion]
+  );
+
+  const readyCount = Object.values(readiness).filter(Boolean).length;
+  const successfulCoachQuestions = messages.filter(
+    (message) => message.role === "coach" && message.countsTowardLimit
+  ).length;
+  const coachLimitReached =
+    successfulCoachQuestions >= assignment.maxCoachQuestions;
+
+  function unlockCoach() {
+    if (wordCount(initialResponse) < 40) {
+      setNotice(
+        "Write at least 40 words of your own thinking before opening the coach."
+      );
+      return;
+    }
+    setCoachUnlocked(true);
+    setNotice("");
+    if (messages.length === 0) {
+      setMessages([
+        {
+          id: Date.now(),
+          role: "coach",
+          move: "Clarify the claim",
+          text: "Which part of your interpretation feels least settled, and what exact detail is creating that uncertainty?",
+        },
+      ]);
+    }
+  }
+
+  function requestPilotCode() {
+    const entered = window.prompt(
+      "Enter the EnDepth pilot access code. Your teacher will provide it.",
+      pilotCode
+    );
+    if (entered === null) return "";
+    const cleanCode = entered.trim();
+    if (!cleanCode) {
+      setCoachError("A pilot access code is required to use the live coach.");
+      return "";
+    }
+    window.sessionStorage.setItem(PILOT_CODE_STORAGE_KEY, cleanCode);
+    setPilotCode(cleanCode);
+    setCoachError("");
+    return cleanCode;
+  }
+
+  async function sendMessage() {
+    const text = newMessage.trim();
+    if (!text || isCoachThinking || coachLimitReached) return;
+
+    const accessCode = pilotCode.trim() || requestPilotCode();
+    if (!accessCode) return;
+
+    const studentMessage = { id: Date.now(), role: "student", text };
+    const conversation = [...messages, studentMessage];
+    setMessages(conversation);
+    setNewMessage("");
+    setCoachError("");
+    setIsCoachThinking(true);
+
+    try {
+      const response = await fetch("/api/coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accessCode,
+          assignment,
+          initialResponse,
+          selectedMove,
+          evidence,
+          significance,
+          messages: conversation.slice(-10).map(({ role, text: messageText }) => ({
+            role,
+            text: messageText,
+          })),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.sessionStorage.removeItem(PILOT_CODE_STORAGE_KEY);
+          setPilotCode("");
+        }
+        const error = new Error(
+          data.error || "The coach could not respond. Please try again."
+        );
+        error.status = response.status;
+        throw error;
+      }
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: Date.now() + 1,
+          role: "coach",
+          text: data.reply,
+          move: data.move || "Socratic question",
+          countsTowardLimit: !data.safetyFlag,
+        },
+      ]);
+    } catch (error) {
+      setMessages((current) =>
+        current.filter((message) => message.id !== studentMessage.id)
+      );
+      setNewMessage(text);
+      setCoachError(
+        error.status === 401
+          ? "That pilot code was not accepted. Enter the current code and try again."
+          : error.message || "The coach could not respond. Please try again."
+      );
+    } finally {
+      setIsCoachThinking(false);
+    }
+  }
+
+  function beginCardFromThinking() {
+    if (!claim.trim()) {
+      setClaim(initialResponse.split(/[.!?]/)[0] || "");
+    }
+    if (!openQuestion.trim()) {
+      setOpenQuestion("What remains genuinely unresolved about this question?");
+    }
+    document
+      .getElementById("harkness-card")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <main className="page student-page">
+      <section className="workspace-banner">
+        <div>
+          <div className="banner-meta">
+            <Pill tone="orange">{assignment.course}</Pill>
+            <span>{assignment.date}</span>
+          </div>
+          <h1>{assignment.title}</h1>
+        </div>
+        <div className="student-identity">
+          <div className="student-avatar">DS</div>
+          <div>
+            <strong>Demo Student</strong>
+            <span>{isSaving ? "Saving…" : savedAt}</span>
+          </div>
+          <Icon name="save" />
+        </div>
+      </section>
+
+      <ProgressSteps readiness={readiness} />
+
+      <div className="student-layout">
+        <div className="student-main-column">
+          <section className="content-card assignment-card">
+            <div className="card-kicker"><Icon name="book" /> Assignment</div>
+            <h2>Entry question</h2>
+            <p className="assignment-prompt">{assignment.prompt}</p>
+            <div className="assignment-meta-grid">
+              <div><span>Teacher</span><strong>{assignment.teacherName}</strong></div>
+              <div><span>Course</span><strong>{assignment.course}</strong></div>
+            </div>
+            <div className="passage-box">
+              <span>{assignment.sourceTitle}</span>
+              <p>“{assignment.passage}”</p>
+            </div>
+            <dl className="student-instructions">
+              <div><dt>Directions</dt><dd>{assignment.directions}</dd></div>
+              <div><dt>Evidence requirement</dt><dd>{assignment.evidenceRequirement}</dd></div>
+              <div><dt>Coaching focus</dt><dd>{assignment.coachingFocus}</dd></div>
+            </dl>
+            <div className="assignment-note">
+              <Icon name="shield" />
+              <span>
+                Begin with your own interpretation. The coach will not supply a
+                thesis, quotation, or paragraph.
+              </span>
+            </div>
+          </section>
+
+          <section className="content-card numbered-card">
+            <div className="number-badge">1</div>
+            <div className="numbered-card-content">
+              <div className="card-heading-row">
+                <div>
+                  <div className="card-kicker">Before the coach appears</div>
+                  <h2>Begin with your own thinking</h2>
+                </div>
+                {readiness.initial ? <Pill tone="green" icon="check">Complete</Pill> : null}
+              </div>
+              <FieldHeader
+                label="Initial response"
+                helper="What do you notice, suspect, or find difficult to explain?"
+                value={initialResponse}
+                minimum={40}
+              />
+              <textarea
+                className="large-textarea"
+                value={initialResponse}
+                onChange={(event) => setInitialResponse(event.target.value)}
+                rows={7}
+              />
+              <div className="field-footer">
+                <span>
+                  Your first version remains visible so you and your teacher can
+                  see how the thinking changes.
+                </span>
+                {!coachUnlocked ? (
+                  <button className="primary-button compact" type="button" onClick={unlockCoach}>
+                    Open the coach <Icon name="arrow" />
+                  </button>
+                ) : (
+                  <span className="unlocked-label"><Icon name="check" /> Coach unlocked</span>
+                )}
+              </div>
+              {notice ? <div className="inline-notice">{notice}</div> : null}
+            </div>
+          </section>
+
+          {coachUnlocked ? (
+            <section className="content-card numbered-card coach-section">
+              <div className="number-badge">2</div>
+              <div className="numbered-card-content">
+                <div className="card-heading-row">
+                  <div>
+                    <div className="card-kicker">One question at a time</div>
+                    <h2>Use the Socratic coach</h2>
+                  </div>
+                  <div className="coach-status-row">
+                    <Pill tone="orange">
+                      {coachLimitReached
+                        ? `${assignment.maxCoachQuestions} of ${assignment.maxCoachQuestions} complete`
+                        : `Question ${successfulCoachQuestions + 1} of ${assignment.maxCoachQuestions}`}
+                    </Pill>
+                    <Pill tone={pilotCode ? "green" : "orange"} icon={pilotCode ? "check" : undefined}>
+                      {pilotCode ? "Live AI ready" : "Pilot code required"}
+                    </Pill>
+                    <button className="text-button" type="button" onClick={requestPilotCode}>
+                      {pilotCode ? "Change code" : "Enter code"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="move-picker">
+                  <div className="move-picker-heading">
+                    <span>I need help to…</span>
+                    <small>Choose the kind of thinking move you need.</small>
+                  </div>
+                  <div className="move-grid">
+                    {MOVE_OPTIONS.map((option) => (
+                      <button
+                        type="button"
+                        key={option.id}
+                        className={`move-button ${selectedMove === option.id ? "selected" : ""}`}
+                        onClick={() => setSelectedMove(option.id)}
+                      >
+                        <span>{option.label}</span>
+                        <small>{option.short}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="chat-window" aria-live="polite">
+                  <div className="chat-date">Preparation conversation</div>
+                  {messages.map((message) => (
+                    <div className={`chat-row ${message.role}`} key={message.id}>
+                      {message.role === "coach" ? <div className="coach-avatar">E</div> : null}
+                      <div className={`message-bubble ${message.role}`}>
+                        {message.move ? <small>{message.move}</small> : null}
+                        <p>{message.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {isCoachThinking ? (
+                    <div className="chat-row coach">
+                      <div className="coach-avatar">E</div>
+                      <div className="message-bubble coach">
+                        <small>Thinking with you</small>
+                        <p>EnDepth is choosing the most useful next question…</p>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <div className="composer">
+                  <textarea
+                    value={newMessage}
+                    onChange={(event) => setNewMessage(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (
+                        !isCoachThinking &&
+                        (event.metaKey || event.ctrlKey) &&
+                        event.key === "Enter"
+                      ) {
+                        event.preventDefault();
+                        sendMessage();
+                      }
+                    }}
+                    rows={3}
+                    placeholder={
+                      coachLimitReached
+                        ? "The coaching conversation is complete. Finish your preparation card."
+                        : "Respond with your own thinking…"
+                    }
+                    disabled={isCoachThinking || coachLimitReached}
+                  />
+                  <div className="composer-footer">
+                    <span>⌘/Ctrl + Enter to send</span>
+                    <button
+                      className="primary-button compact"
+                      type="button"
+                      onClick={sendMessage}
+                      disabled={!newMessage.trim() || isCoachThinking || coachLimitReached}
+                    >
+                      {isCoachThinking ? "Thinking…" : "Send thinking"}
+                      {!isCoachThinking ? <Icon name="arrow" /> : null}
+                    </button>
+                  </div>
+                </div>
+                {coachLimitReached ? (
+                  <div className="inline-notice success-notice">
+                    The coaching conversation is complete. Finish your Harkness
+                    Preparation Card and preserve the question you most want the
+                    group to pursue.
+                  </div>
+                ) : null}
+                {coachError ? <div className="inline-notice">{coachError}</div> : null}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="content-card numbered-card">
+            <div className="number-badge">3</div>
+            <div className="numbered-card-content">
+              <div className="card-heading-row">
+                <div>
+                  <div className="card-kicker">Make the interpretation accountable</div>
+                  <h2>Ground the idea in the text</h2>
+                </div>
+                {readiness.evidence ? <Pill tone="green" icon="check">Grounded</Pill> : null}
+              </div>
+              <div className="field-stack">
+                <div>
+                  <FieldHeader
+                    label="Exact textual moment"
+                    helper="Paste a short quotation or describe the precise action, contrast, or pattern."
+                    value={evidence}
+                    minimum={8}
+                  />
+                  <textarea value={evidence} onChange={(event) => setEvidence(event.target.value)} rows={4} />
+                </div>
+                <div>
+                  <FieldHeader
+                    label="Why this detail matters"
+                    helper="Explain what the moment adds to or complicates about your interpretation."
+                    value={significance}
+                    minimum={8}
+                  />
+                  <textarea value={significance} onChange={(event) => setSignificance(event.target.value)} rows={4} />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="content-card numbered-card" id="harkness-card">
+            <div className="number-badge">4</div>
+            <div className="numbered-card-content">
+              <div className="card-heading-row">
+                <div>
+                  <div className="card-kicker">The classroom artifact</div>
+                  <h2>Build your Harkness Preparation Card</h2>
+                </div>
+                <button className="text-button" type="button" onClick={beginCardFromThinking}>
+                  Use my thinking to begin <Icon name="chevron" size={16} />
+                </button>
+              </div>
+
+              <div className="prep-card">
+                <div className="prep-card-header">
+                  <div>
+                    <span>Harkness Preparation Card</span>
+                    <strong>{assignment.title}</strong>
+                  </div>
+                  <div className="mini-brand"><LogoMark /> EnDepth</div>
+                </div>
+                <div className="prep-field claim-field">
+                  <span>My provisional claim</span>
+                  <textarea value={claim} onChange={(event) => setClaim(event.target.value)} rows={3} />
+                </div>
+                <div className="prep-grid">
+                  <div className="prep-field">
+                    <span>My textual evidence</span>
+                    <textarea value={evidence} onChange={(event) => setEvidence(event.target.value)} rows={5} />
+                  </div>
+                  <div className="prep-field">
+                    <span>The complication</span>
+                    <textarea value={complication} onChange={(event) => setComplication(event.target.value)} rows={5} />
+                  </div>
+                </div>
+                <div className="prep-field question-field">
+                  <span>My open question</span>
+                  <textarea value={openQuestion} onChange={(event) => setOpenQuestion(event.target.value)} rows={3} />
+                </div>
+              </div>
+
+              <div className={`submission-row ${submitted ? "submitted" : ""}`}>
+                <div>
+                  <strong>
+                    {submitted
+                      ? "Marked submitted in this browser"
+                      : readyCount === 4
+                      ? "Ready for discussion"
+                      : `${readyCount} of 4 preparation moves visible`}
+                  </strong>
+                  <span>
+                    {submitted
+                      ? "Submission is still simulated; a shared teacher database has not been connected yet."
+                      : "Drafts stay in this browser. Coach context is sent securely only when you request a live question."}
+                  </span>
+                </div>
+                <button
+                  className={submitted ? "secondary-button" : "primary-button"}
+                  type="button"
+                  disabled={!submitted && readyCount < 4}
+                  onClick={() => setSubmitted((current) => !current)}
+                >
+                  {submitted ? "Reopen preparation" : "Submit preparation"}
+                  <Icon name={submitted ? "rotate" : "check"} />
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside className="student-sidebar">
+          <section className="sidebar-card snapshot-card">
+            <div className="sidebar-heading">
+              <div>
+                <div className="card-kicker">Live qualitative feedback</div>
+                <h2>Thinking Snapshot</h2>
+              </div>
+              <div className="snapshot-ring"><span>{readyCount}</span><small>/ 4 moves</small></div>
+            </div>
+            <p className="sidebar-intro">
+              This is not a grade. It shows what your preparation currently makes
+              visible and what to work on next.
+            </p>
+            <div className="signal-list">
+              {snapshot.map((signal) => <SignalCard signal={signal} key={signal.label} />)}
+            </div>
+          </section>
+
+          <section className="sidebar-card next-move-card">
+            <div className="next-move-icon"><Icon name="spark" /></div>
+            <div>
+              <span>Best next move</span>
+              <strong>
+                {snapshot.find((signal) => signal.state === "Beginning")?.note ||
+                  snapshot.find((signal) => signal.state === "Developing")?.note ||
+                  "Read your card aloud and decide which question you most want the circle to pursue."}
+              </strong>
+            </div>
+          </section>
+
+          <section className="sidebar-card checklist-card">
+            <div className="sidebar-heading compact-heading">
+              <div><div className="card-kicker">Before you submit</div><h2>Readiness check</h2></div>
+            </div>
+            <div className="readiness-list">
+              {[
+                [readiness.initial, "I began with my own interpretation."],
+                [readiness.evidence, "I named a precise textual moment and its significance."],
+                [readiness.complication, "I identified what makes the idea less simple."],
+                [readiness.card, "I have a claim, evidence, complication, and open question."],
+              ].map(([complete, text]) => (
+                <div className={complete ? "complete" : ""} key={text}>
+                  <span>{complete ? <Icon name="check" size={14} /> : ""}</span>
+                  <p>{text}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="sidebar-card transparency-card">
+            <Icon name="eye" />
+            <div>
+              <strong>What “private” means here</strong>
+              <p>
+                Your classmates cannot see this workspace. In a real pilot, your
+                teacher could review your submitted preparation and conversation
+                history.
+              </p>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </main>
+  );
+}
