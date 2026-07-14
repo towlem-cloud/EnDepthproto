@@ -1,33 +1,83 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./styles.css";
 
-const ASSIGNMENT = {
-  course: "Fictional Worlds",
-  title: "Power, Fear, and the Stories We Tell About Ourselves",
-  date: "Harkness preparation · Due tomorrow",
+const ASSIGNMENT_STORAGE_KEY = "endepth.assignment.v1";
+
+const DEFAULT_ASSIGNMENT = {
+  teacherName: "Morgan Towle",
+  course: "Minds, Machines, and Morality",
+  title: "What Counts as Consciousness?",
+  date: "Harkness preparation · Due Friday",
   prompt:
-    "Why does the character make a choice that seems to work against their own safety? What becomes visible when we look beyond the most obvious explanation?",
+    "What should count as consciousness, and what kind of evidence would persuade us that an artificial intelligence genuinely possesses it?",
+  sourceTitle: "Turing, Searle, and the Problem of Machine Consciousness",
   passage:
-    "In the public scene, the character insists that nothing has changed. Moments later, in private, the same character destroys the letter that could have protected them.",
+    "A machine may produce language that appears thoughtful, responsive, and self-aware. But observable performance does not necessarily settle whether the machine understands, experiences, or merely processes symbols according to rules.",
+  directions:
+    "Begin with your own criteria for consciousness, then test those criteria against the Turing-style performance evidence and Searle-style symbol-processing objection.",
+  evidenceRequirement:
+    "Use at least one exact idea from the passage and explain why it would or would not count as evidence of genuine experience.",
+  coachingFocus:
+    "Define consciousness, distinguish performance from experience, and name what evidence would change your mind.",
+  maxCoachQuestions: 6,
 };
 
-const STARTER_MESSAGES = [
+const SHOWCASE_ASSIGNMENT = { ...DEFAULT_ASSIGNMENT };
+
+function normalizeAssignment(value = {}) {
+  return {
+    ...DEFAULT_ASSIGNMENT,
+    ...value,
+    teacherName: String(value.teacherName ?? DEFAULT_ASSIGNMENT.teacherName).trim(),
+    course: String(value.course ?? DEFAULT_ASSIGNMENT.course).trim(),
+    title: String(value.title ?? DEFAULT_ASSIGNMENT.title).trim(),
+    prompt: String(value.prompt ?? DEFAULT_ASSIGNMENT.prompt).trim(),
+    sourceTitle: String(value.sourceTitle ?? DEFAULT_ASSIGNMENT.sourceTitle).trim(),
+    passage: String(value.passage ?? DEFAULT_ASSIGNMENT.passage).trim(),
+    directions: String(value.directions ?? DEFAULT_ASSIGNMENT.directions).trim(),
+    evidenceRequirement: String(value.evidenceRequirement ?? DEFAULT_ASSIGNMENT.evidenceRequirement).trim(),
+    coachingFocus: String(value.coachingFocus ?? DEFAULT_ASSIGNMENT.coachingFocus).trim(),
+    maxCoachQuestions: [4, 6, 8].includes(Number(value.maxCoachQuestions)) ? Number(value.maxCoachQuestions) : 6,
+  };
+}
+
+function assignmentKey(assignment) {
+  return `${assignment.course}|${assignment.title}|${assignment.prompt}`;
+}
+
+function loadAssignment() {
+  if (typeof window === "undefined") return DEFAULT_ASSIGNMENT;
+  try {
+    const saved = window.localStorage.getItem(ASSIGNMENT_STORAGE_KEY);
+    return saved ? normalizeAssignment(JSON.parse(saved)) : DEFAULT_ASSIGNMENT;
+  } catch {
+    return DEFAULT_ASSIGNMENT;
+  }
+}
+
+function saveAssignmentToStorage(assignment) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(ASSIGNMENT_STORAGE_KEY, JSON.stringify(assignment));
+  }
+}
+
+const CONSCIOUSNESS_STARTER_MESSAGES = [
   {
     id: 1,
     role: "coach",
-    text: "You argue that fear matters, but that it does not fully explain the choice. Which exact detail makes fear feel insufficient?",
+    text: "You are distinguishing performance from experience. Which phrase in the passage makes that distinction most difficult to ignore?",
     move: "Ground in the text",
   },
   {
     id: 2,
     role: "student",
-    text: "The public and private actions do not match. If safety were the only goal, destroying the letter makes no sense.",
+    text: "The passage says language can appear thoughtful and self-aware, but that observable performance does not settle whether the machine experiences anything.",
   },
   {
     id: 3,
     role: "coach",
-    text: "What might the character be protecting instead of physical safety? Name the possibility, then test it against the scene.",
-    move: "Clarify the claim",
+    text: "If performance is not enough by itself, what additional evidence would persuade you that the AI has experience rather than only symbol-processing?",
+    move: "Clarify the criterion",
   },
 ];
 
@@ -36,41 +86,57 @@ const PILOT_CODE_STORAGE_KEY = "endepth-pilot-access-code";
 
 const SAMPLE_STUDENT_STATE = {
   initialResponse:
-    "At first, the character seems to destroy the letter because they are afraid of being exposed. But that explanation feels incomplete: the letter could have protected them. The contradiction between what they say publicly and what they do privately makes me think they may care more about controlling their identity than staying safe.",
+    "At first, I want to say a machine is conscious if it can speak in a thoughtful and self-aware way. But the passage makes that answer feel too quick because language might only show performance. I think real consciousness would require some evidence that the machine has experiences, not just that it follows rules well.",
   coachUnlocked: true,
-  messages: STARTER_MESSAGES,
+  messages: CONSCIOUSNESS_STARTER_MESSAGES,
   newMessage:
-    "Maybe the character is protecting the version of themself that other people believe.",
+    "Maybe the strongest evidence would be consistent reports of experience that change when the system encounters new situations.",
   selectedMove: "clarify",
   evidence:
-    "The character insists in public that nothing has changed, then privately destroys the one letter that could verify what really happened.",
+    "The passage says observable performance does not necessarily settle whether the machine understands, experiences, or merely processes symbols according to rules.",
   significance:
-    "The contrast suggests that controlling the story matters more than using the letter for safety.",
+    "That detail matters because it separates what an outside observer can see from what might be happening internally.",
   claim:
-    "The character destroys the letter not simply out of fear, but to control which version of their identity can survive.",
+    "Consciousness should require evidence of experience, not only language that appears thoughtful or responsive.",
   complication:
-    "The act may also be a form of self-punishment, so control and guilt could be operating at the same time.",
+    "The problem is that human consciousness is also inferred through behavior, so AI may be held to a higher standard than people.",
   openQuestion:
-    "Is the character preserving an identity, or trying to erase the person they used to be?",
+    "What kind of evidence could show genuine experience without becoming just another performance test?",
   submitted: false,
 };
 
-function loadStudentState() {
-  if (typeof window === "undefined") return SAMPLE_STUDENT_STATE;
+function createCleanStudentState() {
+  return {
+    initialResponse: "",
+    coachUnlocked: false,
+    messages: [],
+    newMessage: "",
+    selectedMove: "clarify",
+    evidence: "",
+    significance: "",
+    claim: "",
+    complication: "",
+    openQuestion: "",
+    submitted: false,
+  };
+}
+
+function loadStudentState(assignment) {
+  if (typeof window === "undefined") return createCleanStudentState();
 
   try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) return SAMPLE_STUDENT_STATE;
+    const saved = window.localStorage.getItem(`${STORAGE_KEY}:${assignmentKey(assignment)}`);
+    if (!saved) return createCleanStudentState();
     const parsed = JSON.parse(saved);
     return {
-      ...SAMPLE_STUDENT_STATE,
+      ...createCleanStudentState(),
       ...parsed,
       messages: Array.isArray(parsed.messages)
         ? parsed.messages
-        : STARTER_MESSAGES,
+        : CONSCIOUSNESS_STARTER_MESSAGES,
     };
   } catch {
-    return SAMPLE_STUDENT_STATE;
+    return createCleanStudentState();
   }
 }
 
@@ -106,16 +172,11 @@ const TEACHER_STUDENTS = [
     grounding: "Grounded",
     complexity: "Visible",
     question: "Open",
-    initial:
-      "The character destroys the letter because they are afraid of being caught.",
-    revised:
-      "Fear explains the urgency, but destroying the letter also lets the character control which version of the past can survive. The choice protects an identity more than a body.",
-    evidence:
-      "The character says publicly that nothing has changed, then privately destroys the only document that could confirm the truth.",
-    complication:
-      "The letter could also represent guilt, so the act may be both self-protection and self-punishment.",
-    openQuestion:
-      "Is the character preserving an identity, or trying to erase the person they used to be?",
+    initial: "If an AI answers like a person, I am tempted to call it conscious, but that might only prove imitation.",
+    revised: "Performance matters because it is the evidence we can observe, but the passage makes me separate responsive language from inner experience. I would need evidence that the system can report stable experiences, not just process symbols.",
+    evidence: "The passage says observable performance does not settle whether the machine understands, experiences, or merely processes symbols.",
+    complication: "Human consciousness is also inferred from behavior, so rejecting AI behavior too quickly may use a double standard.",
+    openQuestion: "What evidence of experience could be more than another kind of performance?",
   },
   {
     id: 2,
@@ -125,15 +186,11 @@ const TEACHER_STUDENTS = [
     grounding: "Developing",
     complexity: "Visible",
     question: "Developing",
-    initial:
-      "I think pride matters more than fear, but I am not sure what proves that yet.",
-    revised:
-      "The character may choose pride over safety because being seen as weak would destroy the identity they have built.",
-    evidence:
-      "The response refers to the public scene but has not yet identified a precise word or action.",
-    complication:
-      "The character also seems panicked, so pride and fear may be feeding each other.",
-    openQuestion: "Why is public humiliation more threatening than danger?",
+    initial: "I think understanding should count more than sounding thoughtful.",
+    revised: "The difference between understanding and symbol processing seems central, but I need a clearer test for how we would know the difference.",
+    evidence: "The response refers to language that appears thoughtful and responsive.",
+    complication: "Maybe all we ever have for other minds is external evidence.",
+    openQuestion: "Can external behavior ever prove internal experience?",
   },
   {
     id: 3,
@@ -143,16 +200,11 @@ const TEACHER_STUDENTS = [
     grounding: "Grounded",
     complexity: "Visible",
     question: "Open",
-    initial:
-      "The choice looks irrational because the character throws away protection.",
-    revised:
-      "The choice is irrational only if survival is the character's highest value. The scene suggests that controlling the story others believe has become more important than staying safe.",
-    evidence:
-      "The character destroys the letter immediately after insisting that the public version of events is true.",
-    complication:
-      "The destruction may create the very suspicion the character is trying to avoid.",
-    openQuestion:
-      "Can a choice be self-destructive and still feel like control to the person making it?",
+    initial: "The passage makes me skeptical that fluent language is enough for consciousness.",
+    revised: "Fluent language can be evidence, but it is not decisive. The strongest claim is that consciousness requires some capacity for experience, and the hard part is designing evidence that is not just another performance trick.",
+    evidence: "The machine may produce language that appears self-aware, while still possibly processing symbols according to rules.",
+    complication: "A rule-based process might still produce real awareness if the rules create the right kind of system.",
+    openQuestion: "Is consciousness defined by how a system works inside or by what it can make visible to others?",
   },
   {
     id: 4,
@@ -176,15 +228,11 @@ const TEACHER_STUDENTS = [
     grounding: "Grounded",
     complexity: "Developing",
     question: "Open",
-    initial:
-      "Maybe the character is not afraid of consequences but of losing control.",
-    revised:
-      "The letter gives someone else control over the story, so destroying it may be an attempt to take that control back.",
-    evidence:
-      "The private destruction directly contradicts the public insistence that the past is settled.",
-    complication: "",
-    openQuestion:
-      "What does the scene suggest about the difference between truth and control?",
+    initial: "Maybe consciousness should mean having experiences, not just giving answers.",
+    revised: "The passage pushes me to ask whether apparent self-awareness is enough or whether we need evidence that the machine has a point of view.",
+    evidence: "Observable performance does not necessarily settle whether the machine understands or experiences.",
+    complication: "We cannot directly inspect another person's experience either.",
+    openQuestion: "How much uncertainty should we tolerate before granting moral status to AI?",
   },
 ];
 
@@ -445,6 +493,13 @@ function AppHeader({ view, setView, onReset }) {
           </button>
           <button
             type="button"
+            className={view === "teacherSetup" ? "active" : ""}
+            onClick={() => setView("teacherSetup")}
+          >
+            Teacher Setup
+          </button>
+          <button
+            type="button"
             className={view === "teacher" ? "active" : ""}
             onClick={() => setView("teacher")}
           >
@@ -508,20 +563,20 @@ function Overview({ onOpenStudent, onOpenTeacher }) {
           </div>
           <div className="demo-assignment-label">THE STUDENT'S STARTING IDEA</div>
           <blockquote>
-            “The character destroys the letter because they are afraid, but that
-            answer feels too simple.”
+            “The AI sounds self-aware, but that may only prove performance, not
+            experience.”
           </blockquote>
           <div className="mini-message coach">
             <div className="mini-avatar">E</div>
             <p>
-              Which exact detail makes fear feel insufficient—and what might the
-              character be protecting instead?
+              Which phrase distinguishes outward performance from inner
+              experience, and what evidence would change your mind?
             </p>
           </div>
           <div className="demo-output">
             <div>
               <small>Intellectual movement</small>
-              <strong>Fear → control over identity</strong>
+              <strong>Performance → evidence of experience</strong>
             </div>
             <span className="signal-dot" />
           </div>
@@ -680,8 +735,9 @@ function FieldHeader({ label, helper, value, minimum }) {
   );
 }
 
-function StudentWorkspace({ resetToken }) {
-  const initialStateRef = useRef(loadStudentState());
+function StudentWorkspace({ resetToken, assignment }) {
+  const assignmentSignature = assignmentKey(assignment);
+  const initialStateRef = useRef(loadStudentState(assignment));
   const initialState = initialStateRef.current;
 
   const [initialResponse, setInitialResponse] = useState(
@@ -710,23 +766,32 @@ function StudentWorkspace({ resetToken }) {
   });
   const chatEndRef = useRef(null);
 
-  useEffect(() => {
-    if (resetToken === 0) return;
-    setInitialResponse(SAMPLE_STUDENT_STATE.initialResponse);
-    setCoachUnlocked(SAMPLE_STUDENT_STATE.coachUnlocked);
-    setMessages(STARTER_MESSAGES.map((message) => ({ ...message })));
-    setNewMessage(SAMPLE_STUDENT_STATE.newMessage);
-    setSelectedMove(SAMPLE_STUDENT_STATE.selectedMove);
-    setEvidence(SAMPLE_STUDENT_STATE.evidence);
-    setSignificance(SAMPLE_STUDENT_STATE.significance);
-    setClaim(SAMPLE_STUDENT_STATE.claim);
-    setComplication(SAMPLE_STUDENT_STATE.complication);
-    setOpenQuestion(SAMPLE_STUDENT_STATE.openQuestion);
-    setSubmitted(false);
-    setNotice("Sample workspace restored.");
+  function applyStudentState(nextState, message) {
+    setInitialResponse(nextState.initialResponse);
+    setCoachUnlocked(nextState.coachUnlocked);
+    setMessages(nextState.messages.map((item) => ({ ...item })));
+    setNewMessage(nextState.newMessage);
+    setSelectedMove(nextState.selectedMove);
+    setEvidence(nextState.evidence);
+    setSignificance(nextState.significance);
+    setClaim(nextState.claim);
+    setComplication(nextState.complication);
+    setOpenQuestion(nextState.openQuestion);
+    setSubmitted(Boolean(nextState.submitted));
+    setNotice(message);
     setCoachError("");
     setIsCoachThinking(false);
-    window.localStorage.removeItem(STORAGE_KEY);
+  }
+
+  useEffect(() => {
+    applyStudentState(loadStudentState(assignment), "Workspace loaded for this assignment.");
+  }, [assignmentSignature]);
+
+  useEffect(() => {
+    if (resetToken === 0) return;
+    const cleanState = createCleanStudentState();
+    applyStudentState(cleanState, "Workspace cleared.");
+    window.localStorage.removeItem(`${STORAGE_KEY}:${assignmentSignature}`);
   }, [resetToken]);
 
   useEffect(() => {
@@ -734,7 +799,7 @@ function StudentWorkspace({ resetToken }) {
     const timer = window.setTimeout(() => {
       try {
         window.localStorage.setItem(
-          STORAGE_KEY,
+          `${STORAGE_KEY}:${assignmentSignature}`,
           JSON.stringify({
             initialResponse,
             coachUnlocked,
@@ -817,6 +882,11 @@ function StudentWorkspace({ resetToken }) {
   );
 
   const readyCount = Object.values(readiness).filter(Boolean).length;
+  const successfulCoachQuestions = messages.filter(
+    (message) => message.role === "coach" && message.countsTowardLimit
+  ).length;
+  const maxCoachQuestions = assignment.maxCoachQuestions;
+  const coachLimitReached = successfulCoachQuestions >= maxCoachQuestions;
 
   function unlockCoach() {
     if (wordCount(initialResponse) < 40) {
@@ -861,7 +931,7 @@ function StudentWorkspace({ resetToken }) {
 
   async function sendMessage() {
     const text = newMessage.trim();
-    if (!text || isCoachThinking) return;
+    if (!text || isCoachThinking || coachLimitReached) return;
 
     const accessCode = pilotCode.trim() || requestPilotCode();
     if (!accessCode) return;
@@ -886,7 +956,7 @@ function StudentWorkspace({ resetToken }) {
         },
         body: JSON.stringify({
           accessCode,
-          assignment: ASSIGNMENT,
+          assignment,
           initialResponse,
           selectedMove,
           evidence,
@@ -919,6 +989,7 @@ function StudentWorkspace({ resetToken }) {
           role: "coach",
           text: data.reply,
           move: data.move || "Socratic question",
+          countsTowardLimit: true,
         },
       ]);
     } catch (error) {
@@ -953,10 +1024,10 @@ function StudentWorkspace({ resetToken }) {
       <section className="workspace-banner">
         <div>
           <div className="banner-meta">
-            <Pill tone="orange">{ASSIGNMENT.course}</Pill>
-            <span>{ASSIGNMENT.date}</span>
+            <Pill tone="orange">{assignment.course}</Pill>
+            <span>{assignment.date}</span>
           </div>
-          <h1>{ASSIGNMENT.title}</h1>
+          <h1>{assignment.title}</h1>
         </div>
         <div className="student-identity">
           <div className="student-avatar">DS</div>
@@ -975,10 +1046,10 @@ function StudentWorkspace({ resetToken }) {
           <section className="content-card assignment-card">
             <div className="card-kicker"><Icon name="book" /> Assignment</div>
             <h2>Entry question</h2>
-            <p className="assignment-prompt">{ASSIGNMENT.prompt}</p>
+            <p className="assignment-prompt">{assignment.prompt}</p>
             <div className="passage-box">
               <span>Assigned moment</span>
-              <p>“{ASSIGNMENT.passage}”</p>
+              <p>“{assignment.passage}”</p>
             </div>
             <div className="assignment-note">
               <Icon name="shield" />
@@ -1046,8 +1117,8 @@ function StudentWorkspace({ resetToken }) {
                       flexWrap: "wrap",
                     }}
                   >
-                    <Pill tone={pilotCode ? "green" : "orange"} icon={pilotCode ? "check" : undefined}>
-                      {pilotCode ? "Live AI ready" : "Pilot code required"}
+                    <Pill tone={coachLimitReached ? "green" : pilotCode ? "green" : "orange"} icon={pilotCode || coachLimitReached ? "check" : undefined}>
+                      {coachLimitReached ? `Question limit reached (${successfulCoachQuestions} of ${maxCoachQuestions})` : pilotCode ? `Question ${successfulCoachQuestions + 1} of ${maxCoachQuestions}` : "Pilot code required"}
                     </Pill>
                     <button className="text-button" type="button" onClick={requestPilotCode}>
                       {pilotCode ? "Change code" : "Enter code"}
@@ -1119,15 +1190,15 @@ function StudentWorkspace({ resetToken }) {
                     }}
                     rows={3}
                     placeholder="Respond with your own thinking…"
-                    disabled={isCoachThinking}
+                    disabled={isCoachThinking || coachLimitReached}
                   />
                   <div className="composer-footer">
-                    <span>⌘/Ctrl + Enter to send</span>
+                    <span>{coachLimitReached ? "Teacher question limit reached" : "⌘/Ctrl + Enter to send"}</span>
                     <button
                       className="primary-button compact"
                       type="button"
                       onClick={sendMessage}
-                      disabled={!newMessage.trim() || isCoachThinking}
+                      disabled={!newMessage.trim() || isCoachThinking || coachLimitReached}
                     >
                       {isCoachThinking ? "Thinking…" : "Send thinking"}
                       {!isCoachThinking ? <Icon name="arrow" /> : null}
@@ -1198,7 +1269,7 @@ function StudentWorkspace({ resetToken }) {
                 <div className="prep-card-header">
                   <div>
                     <span>Harkness Preparation Card</span>
-                    <strong>{ASSIGNMENT.title}</strong>
+                    <strong>{assignment.title}</strong>
                   </div>
                   <div className="mini-brand"><LogoMark /> EnDepth</div>
                 </div>
@@ -1348,12 +1419,112 @@ function StudentWorkspace({ resetToken }) {
   );
 }
 
+function TeacherSetup({ assignment, onSave, onPreviewStudent }) {
+  const [draft, setDraft] = useState(assignment);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setDraft(assignment);
+  }, [assignment]);
+
+  function updateField(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function validate(nextAssignment) {
+    const missing = [
+      ["teacherName", "teacher name"],
+      ["course", "course"],
+      ["title", "assignment title"],
+      ["prompt", "central question"],
+    ].filter(([field]) => !nextAssignment[field]);
+    if (missing.length) {
+      setError(`Add ${missing.map(([, label]) => label).join(", ")} before saving.`);
+      return false;
+    }
+    setError("");
+    return true;
+  }
+
+  function commitDraft({ preview = false } = {}) {
+    const nextAssignment = normalizeAssignment(draft);
+    if (!validate(nextAssignment)) return false;
+    saveAssignmentToStorage(nextAssignment);
+    onSave(nextAssignment);
+    if (preview) onPreviewStudent();
+    return true;
+  }
+
+  function loadShowcase() {
+    const nextAssignment = normalizeAssignment(SHOWCASE_ASSIGNMENT);
+    setDraft(nextAssignment);
+    setError("");
+  }
+
+  const fields = [
+    ["teacherName", "Teacher name"],
+    ["course", "Course"],
+    ["title", "Assignment title"],
+    ["prompt", "Central question", 3],
+    ["sourceTitle", "Source title"],
+    ["passage", "Passage", 4],
+    ["directions", "Directions", 4],
+    ["evidenceRequirement", "Evidence requirement", 3],
+    ["coachingFocus", "Coaching focus", 3],
+  ];
+
+  return (
+    <main className="page teacher-page">
+      <section className="teacher-banner">
+        <div>
+          <div className="banner-meta">
+            <Pill tone="orange">Teacher Setup</Pill>
+            <span>Saved locally as {ASSIGNMENT_STORAGE_KEY}</span>
+          </div>
+          <h1>Design the Harkness preparation assignment</h1>
+          <p>Save validates required fields, updates the app state, and keeps student work scoped to this assignment.</p>
+        </div>
+      </section>
+
+      <section className="content-card">
+        <div className="field-stack">
+          {fields.map(([field, label, rows]) => (
+            <div key={field}>
+              <FieldHeader label={label} value={draft[field] || ""} />
+              {rows ? (
+                <textarea value={draft[field] || ""} rows={rows} onChange={(event) => updateField(field, event.target.value)} />
+              ) : (
+                <input value={draft[field] || ""} onChange={(event) => updateField(field, event.target.value)} />
+              )}
+            </div>
+          ))}
+          <div>
+            <FieldHeader label="Maximum live coach questions" value="" />
+            <select value={draft.maxCoachQuestions} onChange={(event) => updateField("maxCoachQuestions", Number(event.target.value))}>
+              <option value={4}>4 questions</option>
+              <option value={6}>6 questions</option>
+              <option value={8}>8 questions</option>
+            </select>
+          </div>
+        </div>
+        {error ? <div className="inline-notice">{error}</div> : null}
+        <div className="detail-actions">
+          <button className="primary-button" type="button" onClick={() => commitDraft()}>Save assignment <Icon name="save" /></button>
+          <button className="secondary-button" type="button" onClick={() => commitDraft({ preview: true })}>Preview as student <Icon name="eye" /></button>
+          <button className="secondary-button" type="button" onClick={loadShowcase}>Load showcase demo <Icon name="spark" /></button>
+          <button className="text-button" type="button" onClick={() => setDraft(DEFAULT_ASSIGNMENT)}>Reset assignment <Icon name="rotate" /></button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function StatusBadge({ status }) {
   const slug = status.toLowerCase().replace(/\s+/g, "-");
   return <span className={`status-badge status-${slug}`}>{status}</span>;
 }
 
-function TeacherDashboard() {
+function TeacherDashboard({ assignment, onEditAssignment }) {
   const [filter, setFilter] = useState("All");
   const [selectedId, setSelectedId] = useState(1);
   const selected = TEACHER_STUDENTS.find((student) => student.id === selectedId);
@@ -1373,12 +1544,12 @@ function TeacherDashboard() {
         <div>
           <div className="banner-meta">
             <Pill tone="orange">Teacher dashboard</Pill>
-            <span>Period 3 · Fictional Worlds</span>
+            <span>Period 3 · {assignment.course}</span>
           </div>
-          <h1>{ASSIGNMENT.title}</h1>
-          <p>{ASSIGNMENT.date}</p>
+          <h1>{assignment.title}</h1>
+          <p>{assignment.date}</p>
         </div>
-        <button className="primary-button" type="button">
+        <button className="primary-button" type="button" onClick={onEditAssignment}>
           Create new assignment <Icon name="arrow" />
         </button>
       </section>
@@ -1519,12 +1690,12 @@ function TeacherDashboard() {
               <div className="card-kicker">Assignment design</div>
               <h2>What students are being asked to prepare</h2>
             </div>
-            <button className="text-button" type="button">Edit assignment <Icon name="chevron" size={16} /></button>
+            <button className="text-button" type="button" onClick={onEditAssignment}>Edit assignment <Icon name="chevron" size={16} /></button>
           </div>
           <div className="assignment-summary">
             <div>
               <span>Entry question</span>
-              <p>{ASSIGNMENT.prompt}</p>
+              <p>{assignment.prompt}</p>
             </div>
             <div className="teacher-expectations">
               {[
@@ -1556,6 +1727,7 @@ function TeacherDashboard() {
 export default function App() {
   const [view, setView] = useState("overview");
   const [resetToken, setResetToken] = useState(0);
+  const [assignment, setAssignment] = useState(loadAssignment);
 
   return (
     <div className="app">
@@ -1571,8 +1743,20 @@ export default function App() {
           onOpenTeacher={() => setView("teacher")}
         />
       ) : null}
-      {view === "student" ? <StudentWorkspace resetToken={resetToken} /> : null}
-      {view === "teacher" ? <TeacherDashboard /> : null}
+      {view === "teacherSetup" ? (
+        <TeacherSetup
+          assignment={assignment}
+          onSave={setAssignment}
+          onPreviewStudent={() => setView("student")}
+        />
+      ) : null}
+      {view === "student" ? <StudentWorkspace resetToken={resetToken} assignment={assignment} /> : null}
+      {view === "teacher" ? (
+        <TeacherDashboard
+          assignment={assignment}
+          onEditAssignment={() => setView("teacherSetup")}
+        />
+      ) : null}
 
       <footer className="site-footer">
         <div>
