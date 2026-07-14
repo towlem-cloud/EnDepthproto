@@ -1,4 +1,5 @@
 const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
+const MODERATION_MODEL = process.env.OPENAI_MODERATION_MODEL || "omni-moderation-latest";
 
 const MOVE_LABELS = {
   clarify: "Clarify the claim",
@@ -110,6 +111,9 @@ function buildContext({ assignment, initialResponse, selectedMove, evidence, sig
     title: cleanString(assignment?.title, 240),
     prompt: cleanString(assignment?.prompt, 1800),
     passage: cleanString(assignment?.passage, 3000),
+    directions: cleanString(assignment?.directions, 3000),
+    evidenceRequirement: cleanString(assignment?.evidenceRequirement, 3000),
+    coachingFocus: cleanString(assignment?.coachingFocus, 3000),
   };
 
   const safeMessages = Array.isArray(messages)
@@ -136,6 +140,9 @@ Course: ${safeAssignment.course || "Not provided"}
 Title: ${safeAssignment.title || "Not provided"}
 Teacher's question: ${safeAssignment.prompt || "Not provided"}
 Assigned textual moment: ${safeAssignment.passage || "Not provided"}
+Teacher directions: ${safeAssignment.directions || "Not provided"}
+Evidence requirement: ${safeAssignment.evidenceRequirement || "Not provided"}
+Coaching focus: ${safeAssignment.coachingFocus || "Not provided"}
 
 STUDENT'S ORIGINAL THINKING
 ${cleanString(initialResponse, 5000) || "Not provided"}
@@ -154,6 +161,27 @@ ${conversation || "No prior exchange"}
 
 Ask the single best next question now.
 `;
+}
+
+async function moderateText(input) {
+  const response = await fetch("https://api.openai.com/v1/moderations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ model: MODERATION_MODEL, input }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error("OpenAI moderation error", {
+      status: response.status,
+      error: payload?.error?.message || payload,
+    });
+    return null;
+  }
+  return payload?.results?.[0];
 }
 
 export default {
@@ -202,6 +230,16 @@ export default {
     const context = buildContext(body);
 
     try {
+      const inputModeration = await moderateText(context);
+      if (hasUrgentSafetySignal(inputModeration)) {
+        return json({
+          move: "Safety check",
+          safetyFlag: true,
+          reply:
+            "Could this be about your own immediate safety rather than only the text, and can you tell your teacher or another trusted adult right now?",
+        });
+      }
+
       const openAIResponse = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
@@ -215,7 +253,6 @@ export default {
           max_output_tokens: 120,
           instructions: SYSTEM_PROMPT,
           input: context,
-          moderation: { model: "omni-moderation-latest" },
         }),
       });
 
@@ -250,16 +287,8 @@ export default {
         );
       }
 
-      if (hasUrgentSafetySignal(payload?.moderation?.input)) {
-        return json({
-          move: "Safety check",
-          safetyFlag: true,
-          reply:
-            "Could this be about your own immediate safety rather than only the text, and can you tell your teacher or another trusted adult right now?",
-        });
-      }
-
-      if (hasUrgentSafetySignal(payload?.moderation?.output)) {
+      const outputModeration = await moderateText(extractOutputText(payload));
+      if (hasUrgentSafetySignal(outputModeration)) {
         return json({
           move: "Return to the text",
           safetyFlag: true,

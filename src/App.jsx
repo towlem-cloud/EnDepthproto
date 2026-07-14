@@ -1,15 +1,82 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./styles.css";
 
-const ASSIGNMENT = {
-  course: "Fictional Worlds",
-  title: "Power, Fear, and the Stories We Tell About Ourselves",
-  date: "Harkness preparation · Due tomorrow",
+const ASSIGNMENT_STORAGE_KEY = "endepth.assignment.v1";
+
+const DEFAULT_ASSIGNMENT = {
+  teacherName: "Morgan Towle",
+  course: "Minds, Machines, and Morality",
+  title: "What Counts as Consciousness?",
+  date: "Harkness preparation · Due Friday",
   prompt:
-    "Why does the character make a choice that seems to work against their own safety? What becomes visible when we look beyond the most obvious explanation?",
+    "What should count as consciousness, and what kind of evidence would persuade us that an artificial intelligence genuinely possesses it?",
+  sourceTitle: "Turing, Searle, and the Problem of Machine Consciousness",
   passage:
-    "In the public scene, the character insists that nothing has changed. Moments later, in private, the same character destroys the letter that could have protected them.",
+    "A machine may produce language that appears thoughtful, responsive, and self-aware. But observable performance does not necessarily settle whether the machine understands, experiences, or merely processes symbols according to rules.",
+  directions:
+    "Begin with your own criteria for consciousness, then test those criteria against the Turing-style performance evidence and Searle-style symbol-processing objection.",
+  evidenceRequirement:
+    "Use at least one exact idea from the passage and explain why it would or would not count as evidence of genuine experience.",
+  coachingFocus:
+    "Define consciousness, distinguish performance from experience, and name what evidence would change your mind.",
+  maxCoachQuestions: 6,
 };
+
+const SHOWCASE_ASSIGNMENT = { ...DEFAULT_ASSIGNMENT };
+
+function normalizeAssignment(value = {}) {
+  return {
+    ...DEFAULT_ASSIGNMENT,
+    ...value,
+    teacherName: String(value.teacherName ?? DEFAULT_ASSIGNMENT.teacherName).trim(),
+    course: String(value.course ?? DEFAULT_ASSIGNMENT.course).trim(),
+    title: String(value.title ?? DEFAULT_ASSIGNMENT.title).trim(),
+    date: String(value.date ?? DEFAULT_ASSIGNMENT.date).trim(),
+    prompt: String(value.prompt ?? DEFAULT_ASSIGNMENT.prompt).trim(),
+    sourceTitle: String(value.sourceTitle ?? DEFAULT_ASSIGNMENT.sourceTitle).trim(),
+    passage: String(value.passage ?? DEFAULT_ASSIGNMENT.passage).trim(),
+    directions: String(value.directions ?? DEFAULT_ASSIGNMENT.directions).trim(),
+    evidenceRequirement: String(value.evidenceRequirement ?? DEFAULT_ASSIGNMENT.evidenceRequirement).trim(),
+    coachingFocus: String(value.coachingFocus ?? DEFAULT_ASSIGNMENT.coachingFocus).trim(),
+    maxCoachQuestions: [4, 6, 8].includes(Number(value.maxCoachQuestions))
+      ? Number(value.maxCoachQuestions)
+      : DEFAULT_ASSIGNMENT.maxCoachQuestions,
+  };
+}
+
+function stableAssignmentKey(assignment) {
+  const normalized = normalizeAssignment(assignment);
+  return JSON.stringify({
+    teacherName: normalized.teacherName,
+    course: normalized.course,
+    title: normalized.title,
+    prompt: normalized.prompt,
+    sourceTitle: normalized.sourceTitle,
+    passage: normalized.passage,
+    directions: normalized.directions,
+    evidenceRequirement: normalized.evidenceRequirement,
+    coachingFocus: normalized.coachingFocus,
+    maxCoachQuestions: normalized.maxCoachQuestions,
+  });
+}
+
+function loadAssignment() {
+  if (typeof window === "undefined") return DEFAULT_ASSIGNMENT;
+  try {
+    const saved = window.localStorage.getItem(ASSIGNMENT_STORAGE_KEY);
+    return saved ? normalizeAssignment(JSON.parse(saved)) : DEFAULT_ASSIGNMENT;
+  } catch {
+    return DEFAULT_ASSIGNMENT;
+  }
+}
+
+function saveAssignmentToStorage(assignment) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(ASSIGNMENT_STORAGE_KEY, JSON.stringify(assignment));
+  }
+}
+
+const ASSIGNMENT = DEFAULT_ASSIGNMENT;
 
 const STARTER_MESSAGES = [
   {
@@ -55,11 +122,11 @@ const SAMPLE_STUDENT_STATE = {
   submitted: false,
 };
 
-function loadStudentState() {
+function loadStudentState(assignment = DEFAULT_ASSIGNMENT) {
   if (typeof window === "undefined") return SAMPLE_STUDENT_STATE;
 
   try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
+    const saved = window.localStorage.getItem(`${STORAGE_KEY}:${stableAssignmentKey(assignment)}`);
     if (!saved) return SAMPLE_STUDENT_STATE;
     const parsed = JSON.parse(saved);
     return {
@@ -443,6 +510,7 @@ function AppHeader({ view, setView, onReset }) {
           >
             Student view
           </button>
+          <button type="button" className={view === "teacherSetup" ? "active" : ""} onClick={() => setView("teacherSetup")}>Teacher Setup</button>
           <button
             type="button"
             className={view === "teacher" ? "active" : ""}
@@ -680,8 +748,9 @@ function FieldHeader({ label, helper, value, minimum }) {
   );
 }
 
-function StudentWorkspace({ resetToken }) {
-  const initialStateRef = useRef(loadStudentState());
+function StudentWorkspace({ resetToken, assignment }) {
+  const assignmentSignature = stableAssignmentKey(assignment);
+  const initialStateRef = useRef(loadStudentState(assignment));
   const initialState = initialStateRef.current;
 
   const [initialResponse, setInitialResponse] = useState(
@@ -726,15 +795,15 @@ function StudentWorkspace({ resetToken }) {
     setNotice("Sample workspace restored.");
     setCoachError("");
     setIsCoachThinking(false);
-    window.localStorage.removeItem(STORAGE_KEY);
-  }, [resetToken]);
+    window.localStorage.removeItem(`${STORAGE_KEY}:${assignmentSignature}`);
+  }, [resetToken, assignmentSignature]);
 
   useEffect(() => {
     setIsSaving(true);
     const timer = window.setTimeout(() => {
       try {
         window.localStorage.setItem(
-          STORAGE_KEY,
+          `${STORAGE_KEY}:${assignmentSignature}`,
           JSON.stringify({
             initialResponse,
             coachUnlocked,
@@ -774,7 +843,24 @@ function StudentWorkspace({ resetToken }) {
     complication,
     openQuestion,
     submitted,
+    assignmentSignature,
   ]);
+
+  useEffect(() => {
+    const nextState = loadStudentState(assignment);
+    setInitialResponse(nextState.initialResponse);
+    setCoachUnlocked(nextState.coachUnlocked);
+    setMessages(nextState.messages);
+    setNewMessage(nextState.newMessage);
+    setSelectedMove(nextState.selectedMove);
+    setEvidence(nextState.evidence);
+    setSignificance(nextState.significance);
+    setClaim(nextState.claim);
+    setComplication(nextState.complication);
+    setOpenQuestion(nextState.openQuestion);
+    setSubmitted(Boolean(nextState.submitted));
+    setNotice("Workspace loaded for this assignment.");
+  }, [assignmentSignature, assignment]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -886,7 +972,7 @@ function StudentWorkspace({ resetToken }) {
         },
         body: JSON.stringify({
           accessCode,
-          assignment: ASSIGNMENT,
+          assignment,
           initialResponse,
           selectedMove,
           evidence,
@@ -953,10 +1039,10 @@ function StudentWorkspace({ resetToken }) {
       <section className="workspace-banner">
         <div>
           <div className="banner-meta">
-            <Pill tone="orange">{ASSIGNMENT.course}</Pill>
-            <span>{ASSIGNMENT.date}</span>
+            <Pill tone="orange">{assignment.course}</Pill>
+            <span>{assignment.date}</span>
           </div>
-          <h1>{ASSIGNMENT.title}</h1>
+          <h1>{assignment.title}</h1>
         </div>
         <div className="student-identity">
           <div className="student-avatar">DS</div>
@@ -975,11 +1061,19 @@ function StudentWorkspace({ resetToken }) {
           <section className="content-card assignment-card">
             <div className="card-kicker"><Icon name="book" /> Assignment</div>
             <h2>Entry question</h2>
-            <p className="assignment-prompt">{ASSIGNMENT.prompt}</p>
+            <p className="assignment-prompt">{assignment.prompt}</p>
             <div className="passage-box">
               <span>Assigned moment</span>
-              <p>“{ASSIGNMENT.passage}”</p>
+              <p>“{assignment.passage}”</p>
             </div>
+            <dl className="student-instructions">
+              <div><dt>Teacher</dt><dd>{assignment.teacherName}</dd></div>
+              <div><dt>Course</dt><dd>{assignment.course}</dd></div>
+              <div><dt>Source</dt><dd>{assignment.sourceTitle}</dd></div>
+              <div><dt>Directions</dt><dd>{assignment.directions}</dd></div>
+              <div><dt>Evidence requirement</dt><dd>{assignment.evidenceRequirement}</dd></div>
+              <div><dt>Coaching focus</dt><dd>{assignment.coachingFocus}</dd></div>
+            </dl>
             <div className="assignment-note">
               <Icon name="shield" />
               <span>
@@ -1198,7 +1292,7 @@ function StudentWorkspace({ resetToken }) {
                 <div className="prep-card-header">
                   <div>
                     <span>Harkness Preparation Card</span>
-                    <strong>{ASSIGNMENT.title}</strong>
+                    <strong>{assignment.title}</strong>
                   </div>
                   <div className="mini-brand"><LogoMark /> EnDepth</div>
                 </div>
@@ -1353,7 +1447,7 @@ function StatusBadge({ status }) {
   return <span className={`status-badge status-${slug}`}>{status}</span>;
 }
 
-function TeacherDashboard() {
+function TeacherDashboard({ assignment, onEditAssignment }) {
   const [filter, setFilter] = useState("All");
   const [selectedId, setSelectedId] = useState(1);
   const selected = TEACHER_STUDENTS.find((student) => student.id === selectedId);
@@ -1373,12 +1467,12 @@ function TeacherDashboard() {
         <div>
           <div className="banner-meta">
             <Pill tone="orange">Teacher dashboard</Pill>
-            <span>Period 3 · Fictional Worlds</span>
+            <span>Period 3 · Minds, Machines, and Morality</span>
           </div>
-          <h1>{ASSIGNMENT.title}</h1>
-          <p>{ASSIGNMENT.date}</p>
+          <h1>{assignment.title}</h1>
+          <p>{assignment.date}</p>
         </div>
-        <button className="primary-button" type="button">
+        <button className="primary-button" type="button" onClick={onEditAssignment}>
           Create new assignment <Icon name="arrow" />
         </button>
       </section>
@@ -1519,12 +1613,12 @@ function TeacherDashboard() {
               <div className="card-kicker">Assignment design</div>
               <h2>What students are being asked to prepare</h2>
             </div>
-            <button className="text-button" type="button">Edit assignment <Icon name="chevron" size={16} /></button>
+            <button className="text-button" type="button" onClick={onEditAssignment}>Edit assignment <Icon name="chevron" size={16} /></button>
           </div>
           <div className="assignment-summary">
             <div>
               <span>Entry question</span>
-              <p>{ASSIGNMENT.prompt}</p>
+              <p>{assignment.prompt}</p>
             </div>
             <div className="teacher-expectations">
               {[
@@ -1553,9 +1647,93 @@ function TeacherDashboard() {
   );
 }
 
+
+function TeacherSetup({ assignment, onSave, onPreview }) {
+  const [draft, setDraft] = useState(assignment);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => setDraft(assignment), [assignment]);
+
+  function updateField(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function saveAndMaybePreview(shouldPreview = false) {
+    const normalized = normalizeAssignment(draft);
+    const requiredFields = ["teacherName", "course", "title", "prompt", "sourceTitle", "passage", "directions", "evidenceRequirement", "coachingFocus"];
+    const missing = requiredFields.filter((field) => !normalized[field]);
+    if (missing.length) {
+      setNotice("Complete every assignment field before previewing as a student.");
+      return;
+    }
+    saveAssignmentToStorage(normalized);
+    onSave(normalized);
+    setNotice("Assignment saved for this browser.");
+    if (shouldPreview) onPreview();
+  }
+
+  const fields = [
+    ["teacherName", "Teacher name"],
+    ["course", "Course"],
+    ["title", "Assignment title"],
+    ["sourceTitle", "Source title"],
+    ["prompt", "Entry question", 3],
+    ["passage", "Passage", 4],
+    ["directions", "Directions", 4],
+    ["evidenceRequirement", "Evidence requirement", 3],
+    ["coachingFocus", "Coaching focus", 3],
+  ];
+
+  return (
+    <main className="page teacher-setup-page">
+      <section className="setup-hero content-card">
+        <div>
+          <div className="card-kicker">Teacher setup</div>
+          <h1>Create the Harkness preparation assignment</h1>
+          <p>Save the exact teacher-facing instructions before opening the read-only student preview.</p>
+        </div>
+        <div className="setup-actions">
+          <button className="secondary-button" type="button" onClick={() => setDraft(SHOWCASE_ASSIGNMENT)}>
+            Load Friday showcase
+          </button>
+          <button className="secondary-button" type="button" onClick={() => saveAndMaybePreview(false)}>
+            Save draft
+          </button>
+          <button className="primary-button" type="button" onClick={() => saveAndMaybePreview(true)}>
+            Preview as student <Icon name="arrow" />
+          </button>
+        </div>
+      </section>
+
+      <section className="setup-grid content-card">
+        {fields.map(([field, label, rows]) => (
+          <label className={rows ? "setup-field setup-field-wide" : "setup-field"} key={field}>
+            <span>{label}</span>
+            {rows ? (
+              <textarea rows={rows} value={draft[field]} onChange={(event) => updateField(field, event.target.value)} />
+            ) : (
+              <input value={draft[field]} onChange={(event) => updateField(field, event.target.value)} />
+            )}
+          </label>
+        ))}
+        <label className="setup-field">
+          <span>Successful live-coach question limit</span>
+          <select value={draft.maxCoachQuestions} onChange={(event) => updateField("maxCoachQuestions", Number(event.target.value))}>
+            <option value={4}>4 questions</option>
+            <option value={6}>6 questions</option>
+            <option value={8}>8 questions</option>
+          </select>
+        </label>
+      </section>
+      {notice ? <div className="inline-notice setup-notice">{notice}</div> : null}
+    </main>
+  );
+}
+
 export default function App() {
   const [view, setView] = useState("overview");
   const [resetToken, setResetToken] = useState(0);
+  const [assignment, setAssignment] = useState(loadAssignment);
 
   return (
     <div className="app">
@@ -1571,8 +1749,11 @@ export default function App() {
           onOpenTeacher={() => setView("teacher")}
         />
       ) : null}
-      {view === "student" ? <StudentWorkspace resetToken={resetToken} /> : null}
-      {view === "teacher" ? <TeacherDashboard /> : null}
+      {view === "student" ? <StudentWorkspace resetToken={resetToken} assignment={assignment} /> : null}
+      {view === "teacherSetup" ? (
+        <TeacherSetup assignment={assignment} onSave={setAssignment} onPreview={() => setView("student")} />
+      ) : null}
+      {view === "teacher" ? <TeacherDashboard assignment={assignment} onEditAssignment={() => setView("teacherSetup")} /> : null}
 
       <footer className="site-footer">
         <div>

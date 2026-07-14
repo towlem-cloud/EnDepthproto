@@ -2202,3 +2202,102 @@ button.roster-row:hover {
     transition: none !important;
   }
 }
+
+.student-instructions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+}
+
+.student-instructions div,
+.setup-field {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0.85rem;
+}
+
+.student-instructions dt,
+.setup-field span {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.student-instructions dd {
+  margin: 0.25rem 0 0;
+  color: #0f172a;
+  line-height: 1.45;
+}
+
+.teacher-setup-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.setup-hero {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.setup-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setup-field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.setup-field-wide {
+  grid-column: 1 / -1;
+}
+
+.setup-field input,
+.setup-field select,
+.setup-field textarea {
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 14px;
+  color: #0f172a;
+  font: inherit;
+  padding: 0.75rem 0.85rem;
+  width: 100%;
+}
+
+.setup-field textarea {
+  resize: vertical;
+}
+
+.setup-notice {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .student-instructions,
+  .setup-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .setup-actions {
+    justify-content: flex-start;
+  }
+}
