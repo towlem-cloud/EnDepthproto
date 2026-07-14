@@ -50,6 +50,7 @@ function stableAssignmentKey(assignment) {
     teacherName: normalized.teacherName,
     course: normalized.course,
     title: normalized.title,
+    date: normalized.date,
     prompt: normalized.prompt,
     sourceTitle: normalized.sourceTitle,
     passage: normalized.passage,
@@ -82,19 +83,19 @@ const STARTER_MESSAGES = [
   {
     id: 1,
     role: "coach",
-    text: "You argue that fear matters, but that it does not fully explain the choice. Which exact detail makes fear feel insufficient?",
-    move: "Ground in the text",
+    text: "When the passage separates language that appears thoughtful from genuine experience, which exact word or contrast seems most important to notice first?",
+    move: "Notice",
   },
   {
     id: 2,
     role: "student",
-    text: "The public and private actions do not match. If safety were the only goal, destroying the letter makes no sense.",
+    text: "The contrast between 'appears thoughtful' and whether the machine actually 'understands' seems important because performance might imitate consciousness without proving experience.",
   },
   {
     id: 3,
     role: "coach",
-    text: "What might the character be protecting instead of physical safety? Name the possibility, then test it against the scene.",
-    move: "Clarify the claim",
+    text: "If performance can imitate understanding, what kind of evidence would make experience more than an assumption?",
+    move: "Interpret",
   },
 ];
 
@@ -103,41 +104,75 @@ const PILOT_CODE_STORAGE_KEY = "endepth-pilot-access-code";
 
 const SAMPLE_STUDENT_STATE = {
   initialResponse:
-    "At first, the character seems to destroy the letter because they are afraid of being exposed. But that explanation feels incomplete: the letter could have protected them. The contradiction between what they say publicly and what they do privately makes me think they may care more about controlling their identity than staying safe.",
+    "I think consciousness should count as more than producing convincing language. The passage says a machine may sound thoughtful and responsive, but that performance does not settle whether it understands or merely processes symbols. That makes me think the strongest test would need evidence of experience from the inside, not just behavior that looks intelligent from the outside.",
   coachUnlocked: true,
   messages: STARTER_MESSAGES,
   newMessage:
-    "Maybe the character is protecting the version of themself that other people believe.",
-  selectedMove: "clarify",
+    "Maybe the hardest question is whether evidence of experience can ever be public enough for other people to trust.",
+  selectedMove: "complicate",
   evidence:
-    "The character insists in public that nothing has changed, then privately destroys the one letter that could verify what really happened.",
+    "The passage contrasts language that appears thoughtful, responsive, and self-aware with the possibility that the machine merely processes symbols according to rules.",
   significance:
-    "The contrast suggests that controlling the story matters more than using the letter for safety.",
+    "That contrast matters because it separates observable performance from inner understanding, so a Turing-style result may be persuasive without being complete proof of consciousness.",
   claim:
-    "The character destroys the letter not simply out of fear, but to control which version of their identity can survive.",
+    "Consciousness should require some evidence of experience or understanding, not only successful performance, because symbol processing can imitate the signs of thought without settling whether anything is felt or understood.",
   complication:
-    "The act may also be a form of self-punishment, so control and guilt could be operating at the same time.",
+    "The problem is that human consciousness is also judged mostly through behavior and language, so demanding private proof from AI may create a standard we cannot fully apply to one another.",
   openQuestion:
-    "Is the character preserving an identity, or trying to erase the person they used to be?",
+    "If we cannot directly observe experience, when would it be morally safer to treat an artificial intelligence as conscious?",
   submitted: false,
 };
 
+function isShowcaseAssignment(assignment = DEFAULT_ASSIGNMENT) {
+  return stableAssignmentKey(assignment) === stableAssignmentKey(DEFAULT_ASSIGNMENT);
+}
+
+function cloneStudentState(state) {
+  return {
+    ...state,
+    messages: state.messages.map((message) => ({ ...message })),
+  };
+}
+
+function createCleanStudentState() {
+  return {
+    initialResponse: "",
+    coachUnlocked: false,
+    messages: [],
+    newMessage: "",
+    selectedMove: "clarify",
+    evidence: "",
+    significance: "",
+    claim: "",
+    complication: "",
+    openQuestion: "",
+    submitted: false,
+  };
+}
+
+function getInitialStudentState(assignment = DEFAULT_ASSIGNMENT) {
+  return isShowcaseAssignment(assignment)
+    ? cloneStudentState(SAMPLE_STUDENT_STATE)
+    : createCleanStudentState();
+}
+
 function loadStudentState(assignment = DEFAULT_ASSIGNMENT) {
-  if (typeof window === "undefined") return SAMPLE_STUDENT_STATE;
+  const initialState = getInitialStudentState(assignment);
+  if (typeof window === "undefined") return initialState;
 
   try {
     const saved = window.localStorage.getItem(`${STORAGE_KEY}:${stableAssignmentKey(assignment)}`);
-    if (!saved) return SAMPLE_STUDENT_STATE;
+    if (!saved) return initialState;
     const parsed = JSON.parse(saved);
     return {
-      ...SAMPLE_STUDENT_STATE,
+      ...initialState,
       ...parsed,
       messages: Array.isArray(parsed.messages)
         ? parsed.messages
-        : STARTER_MESSAGES,
+        : initialState.messages,
     };
   } catch {
-    return SAMPLE_STUDENT_STATE;
+    return initialState;
   }
 }
 
@@ -174,15 +209,15 @@ const TEACHER_STUDENTS = [
     complexity: "Visible",
     question: "Open",
     initial:
-      "The character destroys the letter because they are afraid of being caught.",
+      "A machine that passes a Turing-style test might count as conscious because we usually infer minds from language and behavior.",
     revised:
-      "Fear explains the urgency, but destroying the letter also lets the character control which version of the past can survive. The choice protects an identity more than a body.",
+      "A Turing-style performance is morally relevant evidence, but it may not be enough by itself. If Searle is right that symbol processing can copy understanding without experience, then consciousness should require some account of what would make the system more than a fluent performance.",
     evidence:
-      "The character says publicly that nothing has changed, then privately destroys the only document that could confirm the truth.",
+      "The passage says a machine may produce language that appears thoughtful, responsive, and self-aware while still merely processing symbols according to rules.",
     complication:
-      "The letter could also represent guilt, so the act may be both self-protection and self-punishment.",
+      "We also judge human understanding through outward signs, so rejecting AI consciousness only because experience is hidden may be unfair or inconsistent.",
     openQuestion:
-      "Is the character preserving an identity, or trying to erase the person they used to be?",
+      "At what point should uncertainty about machine experience change the moral status we grant an AI?",
   },
   {
     id: 2,
@@ -193,14 +228,14 @@ const TEACHER_STUDENTS = [
     complexity: "Visible",
     question: "Developing",
     initial:
-      "I think pride matters more than fear, but I am not sure what proves that yet.",
+      "I think consciousness requires understanding, not just giving answers that sound intelligent.",
     revised:
-      "The character may choose pride over safety because being seen as weak would destroy the identity they have built.",
+      "The difference between performance and understanding matters because a system could satisfy a Turing test while still following rules without experience, which is close to Searle's symbol-processing objection.",
     evidence:
-      "The response refers to the public scene but has not yet identified a precise word or action.",
+      "Jordan has named the performance-versus-experience contrast but still needs one exact phrase from the passage.",
     complication:
-      "The character also seems panicked, so pride and fear may be feeding each other.",
-    openQuestion: "Why is public humiliation more threatening than danger?",
+      "The response recognizes that observable behavior may be the only evidence available, even if it feels incomplete.",
+    openQuestion: "What would count as evidence of understanding rather than imitation?",
   },
   {
     id: 3,
@@ -211,15 +246,15 @@ const TEACHER_STUDENTS = [
     complexity: "Visible",
     question: "Open",
     initial:
-      "The choice looks irrational because the character throws away protection.",
+      "If an AI can talk about itself and respond thoughtfully, I am tempted to call it conscious.",
     revised:
-      "The choice is irrational only if survival is the character's highest value. The scene suggests that controlling the story others believe has become more important than staying safe.",
+      "Self-aware language should matter, but the passage warns that language can appear responsive without proving inner experience. The stronger claim is that consciousness may require both sustained intelligent performance and a reason to believe the system has subjective experience.",
     evidence:
-      "The character destroys the letter immediately after insisting that the public version of events is true.",
+      "The key tension is between language that appears thoughtful and the unresolved question of whether the machine understands or experiences anything.",
     complication:
-      "The destruction may create the very suspicion the character is trying to avoid.",
+      "A very strict standard could deny moral status to an entity that is actually conscious, which may be more dangerous than cautious recognition.",
     openQuestion:
-      "Can a choice be self-destructive and still feel like control to the person making it?",
+      "Is it worse to mistakenly grant moral status to a non-conscious machine or deny it to a conscious one?",
   },
   {
     id: 4,
@@ -244,14 +279,14 @@ const TEACHER_STUDENTS = [
     complexity: "Developing",
     question: "Open",
     initial:
-      "Maybe the character is not afraid of consequences but of losing control.",
+      "The Turing test seems useful because language is the main way we recognize other minds.",
     revised:
-      "The letter gives someone else control over the story, so destroying it may be an attempt to take that control back.",
+      "Turing-style performance may be the best public evidence we have, but Searle's objection shows that convincing symbol manipulation might not equal understanding or experience.",
     evidence:
-      "The private destruction directly contradicts the public insistence that the past is settled.",
+      "The passage says observable performance does not necessarily settle whether the machine understands, experiences, or merely processes symbols.",
     complication: "",
     openQuestion:
-      "What does the scene suggest about the difference between truth and control?",
+      "How much uncertainty about consciousness should we tolerate before moral status becomes necessary?",
   },
 ];
 
@@ -576,20 +611,20 @@ function Overview({ onOpenStudent, onOpenTeacher }) {
           </div>
           <div className="demo-assignment-label">THE STUDENT'S STARTING IDEA</div>
           <blockquote>
-            “The character destroys the letter because they are afraid, but that
-            answer feels too simple.”
+            “A machine can appear thoughtful, but that does not prove it
+            understands or experiences anything.”
           </blockquote>
           <div className="mini-message coach">
             <div className="mini-avatar">E</div>
             <p>
-              Which exact detail makes fear feel insufficient—and what might the
-              character be protecting instead?
+              Which exact contrast makes performance feel different from
+              consciousness?
             </p>
           </div>
           <div className="demo-output">
             <div>
               <small>Intellectual movement</small>
-              <strong>Fear → control over identity</strong>
+              <strong>Performance → experience</strong>
             </div>
             <span className="signal-dot" />
           </div>
@@ -781,22 +816,27 @@ function StudentWorkspace({ resetToken, assignment }) {
 
   useEffect(() => {
     if (resetToken === 0) return;
-    setInitialResponse(SAMPLE_STUDENT_STATE.initialResponse);
-    setCoachUnlocked(SAMPLE_STUDENT_STATE.coachUnlocked);
-    setMessages(STARTER_MESSAGES.map((message) => ({ ...message })));
-    setNewMessage(SAMPLE_STUDENT_STATE.newMessage);
-    setSelectedMove(SAMPLE_STUDENT_STATE.selectedMove);
-    setEvidence(SAMPLE_STUDENT_STATE.evidence);
-    setSignificance(SAMPLE_STUDENT_STATE.significance);
-    setClaim(SAMPLE_STUDENT_STATE.claim);
-    setComplication(SAMPLE_STUDENT_STATE.complication);
-    setOpenQuestion(SAMPLE_STUDENT_STATE.openQuestion);
+    const resetState = getInitialStudentState(assignment);
+    setInitialResponse(resetState.initialResponse);
+    setCoachUnlocked(resetState.coachUnlocked);
+    setMessages(resetState.messages);
+    setNewMessage(resetState.newMessage);
+    setSelectedMove(resetState.selectedMove);
+    setEvidence(resetState.evidence);
+    setSignificance(resetState.significance);
+    setClaim(resetState.claim);
+    setComplication(resetState.complication);
+    setOpenQuestion(resetState.openQuestion);
     setSubmitted(false);
-    setNotice("Sample workspace restored.");
+    setNotice(
+      isShowcaseAssignment(assignment)
+        ? "Consciousness sample workspace restored."
+        : "This assignment's workspace has been cleared."
+    );
     setCoachError("");
     setIsCoachThinking(false);
     window.localStorage.removeItem(`${STORAGE_KEY}:${assignmentSignature}`);
-  }, [resetToken, assignmentSignature]);
+  }, [resetToken, assignmentSignature, assignment]);
 
   useEffect(() => {
     setIsSaving(true);
@@ -903,6 +943,15 @@ function StudentWorkspace({ resetToken, assignment }) {
   );
 
   const readyCount = Object.values(readiness).filter(Boolean).length;
+  const coachLimit = assignment.maxCoachQuestions;
+  const successfulLiveCoachQuestions = messages.filter(
+    (message) => message.role === "coach" && message.countsTowardLimit
+  ).length;
+  const coachLimitReached = successfulLiveCoachQuestions >= coachLimit;
+  const coachProgressLabel = `Question ${Math.min(
+    successfulLiveCoachQuestions,
+    coachLimit
+  )} of ${coachLimit}`;
 
   function unlockCoach() {
     if (wordCount(initialResponse) < 40) {
@@ -948,6 +997,14 @@ function StudentWorkspace({ resetToken, assignment }) {
   async function sendMessage() {
     const text = newMessage.trim();
     if (!text || isCoachThinking) return;
+
+    if (coachLimitReached) {
+      setCoachError("");
+      setNotice(
+        "You have used all live coach questions for this assignment. Finish your Harkness Preparation Card with the thinking already here."
+      );
+      return;
+    }
 
     const accessCode = pilotCode.trim() || requestPilotCode();
     if (!accessCode) return;
@@ -1005,6 +1062,7 @@ function StudentWorkspace({ resetToken, assignment }) {
           role: "coach",
           text: data.reply,
           move: data.move || "Socratic question",
+          countsTowardLimit: !data.safetyFlag,
         },
       ]);
     } catch (error) {
@@ -1027,7 +1085,7 @@ function StudentWorkspace({ resetToken, assignment }) {
       setClaim(initialResponse.split(/[.!?]/)[0] || "");
     }
     if (!openQuestion.trim()) {
-      setOpenQuestion("What remains unresolved about this choice?");
+      setOpenQuestion("What remains unresolved about consciousness, evidence, or moral status?");
     }
     document
       .getElementById("harkness-card")
@@ -1170,7 +1228,7 @@ function StudentWorkspace({ resetToken, assignment }) {
                 </div>
 
                 <div className="chat-window" aria-live="polite">
-                  <div className="chat-date">Preparation conversation</div>
+                  <div className="chat-date">Preparation conversation · {coachProgressLabel}</div>
                   {messages.map((message) => (
                     <div
                       className={`chat-row ${message.role}`}
@@ -1197,6 +1255,12 @@ function StudentWorkspace({ resetToken, assignment }) {
                   <div ref={chatEndRef} />
                 </div>
 
+                {coachLimitReached ? (
+                  <div className="inline-notice coach-limit-notice">
+                    You have reached the teacher-selected live coach limit. Preserve this conversation and finish the Harkness Preparation Card below.
+                  </div>
+                ) : null}
+
                 <div className="composer">
                   <textarea
                     value={newMessage}
@@ -1213,17 +1277,17 @@ function StudentWorkspace({ resetToken, assignment }) {
                     }}
                     rows={3}
                     placeholder="Respond with your own thinking…"
-                    disabled={isCoachThinking}
+                    disabled={isCoachThinking || coachLimitReached}
                   />
                   <div className="composer-footer">
-                    <span>⌘/Ctrl + Enter to send</span>
+                    <span>{coachLimitReached ? "Live coach complete" : "⌘/Ctrl + Enter to send"}</span>
                     <button
                       className="primary-button compact"
                       type="button"
                       onClick={sendMessage}
-                      disabled={!newMessage.trim() || isCoachThinking}
+                      disabled={!newMessage.trim() || isCoachThinking || coachLimitReached}
                     >
-                      {isCoachThinking ? "Thinking…" : "Send thinking"}
+                      {coachLimitReached ? "Coach complete" : isCoachThinking ? "Thinking…" : "Send thinking"}
                       {!isCoachThinking ? <Icon name="arrow" /> : null}
                     </button>
                   </div>
@@ -1467,7 +1531,7 @@ function TeacherDashboard({ assignment, onEditAssignment }) {
         <div>
           <div className="banner-meta">
             <Pill tone="orange">Teacher dashboard</Pill>
-            <span>Period 3 · Minds, Machines, and Morality</span>
+            <span>Period 3 · {assignment.course}</span>
           </div>
           <h1>{assignment.title}</h1>
           <p>{assignment.date}</p>
@@ -1660,7 +1724,7 @@ function TeacherSetup({ assignment, onSave, onPreview }) {
 
   function saveAndMaybePreview(shouldPreview = false) {
     const normalized = normalizeAssignment(draft);
-    const requiredFields = ["teacherName", "course", "title", "prompt", "sourceTitle", "passage", "directions", "evidenceRequirement", "coachingFocus"];
+    const requiredFields = ["teacherName", "course", "title", "date", "prompt", "sourceTitle", "passage", "directions", "evidenceRequirement", "coachingFocus"];
     const missing = requiredFields.filter((field) => !normalized[field]);
     if (missing.length) {
       setNotice("Complete every assignment field before previewing as a student.");
@@ -1676,6 +1740,7 @@ function TeacherSetup({ assignment, onSave, onPreview }) {
     ["teacherName", "Teacher name"],
     ["course", "Course"],
     ["title", "Assignment title"],
+    ["date", "Due date label"],
     ["sourceTitle", "Source title"],
     ["prompt", "Entry question", 3],
     ["passage", "Passage", 4],
@@ -1695,6 +1760,9 @@ function TeacherSetup({ assignment, onSave, onPreview }) {
         <div className="setup-actions">
           <button className="secondary-button" type="button" onClick={() => setDraft(SHOWCASE_ASSIGNMENT)}>
             Load Friday showcase
+          </button>
+          <button className="secondary-button" type="button" onClick={() => setDraft(DEFAULT_ASSIGNMENT)}>
+            Reset assignment
           </button>
           <button className="secondary-button" type="button" onClick={() => saveAndMaybePreview(false)}>
             Save draft
