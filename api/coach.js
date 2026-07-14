@@ -1,4 +1,5 @@
-const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
+const MODEL = process.env.OPENAI_MODEL || "gpt-5.5";
+const MODERATION_MODEL = process.env.OPENAI_MODERATION_MODEL || "omni-moderation-latest";
 
 const MOVE_LABELS = {
   clarify: "Clarify the claim",
@@ -104,6 +105,40 @@ function hasUrgentSafetySignal(result) {
   );
 }
 
+function getModerationResults(payload) {
+  return Array.isArray(payload?.results) ? payload.results : [];
+}
+
+function hasUrgentSafetyResults(payload) {
+  return getModerationResults(payload).some(hasUrgentSafetySignal);
+}
+
+async function moderateText(input) {
+  const response = await fetch("https://api.openai.com/v1/moderations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: MODERATION_MODEL,
+      input,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.error("OpenAI moderation error", {
+      status: response.status,
+      error: payload?.error?.message || payload,
+    });
+    return { blocked: false, unavailable: true };
+  }
+
+  return { blocked: hasUrgentSafetyResults(payload), unavailable: false };
+}
+
 function buildContext({ assignment, initialResponse, selectedMove, evidence, significance, messages }) {
   const safeAssignment = {
     course: cleanString(assignment?.course, 120),
@@ -202,6 +237,16 @@ export default {
     const context = buildContext(body);
 
     try {
+      const inputModeration = await moderateText(context);
+      if (inputModeration.blocked) {
+        return json({
+          move: "Safety check",
+          safetyFlag: true,
+          reply:
+            "Could this be about your own immediate safety rather than only the text, and can you tell your teacher or another trusted adult right now?",
+        });
+      }
+
       const openAIResponse = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
@@ -215,7 +260,6 @@ export default {
           max_output_tokens: 120,
           instructions: SYSTEM_PROMPT,
           input: context,
-          moderation: { model: "omni-moderation-latest" },
         }),
       });
 
@@ -250,16 +294,9 @@ export default {
         );
       }
 
-      if (hasUrgentSafetySignal(payload?.moderation?.input)) {
-        return json({
-          move: "Safety check",
-          safetyFlag: true,
-          reply:
-            "Could this be about your own immediate safety rather than only the text, and can you tell your teacher or another trusted adult right now?",
-        });
-      }
-
-      if (hasUrgentSafetySignal(payload?.moderation?.output)) {
+      const reply = normalizeQuestion(extractOutputText(payload));
+      const outputModeration = await moderateText(reply);
+      if (outputModeration.blocked) {
         return json({
           move: "Return to the text",
           safetyFlag: true,
@@ -267,8 +304,6 @@ export default {
             "Which specific part of the assigned text can you examine without moving into harmful or unsafe material?",
         });
       }
-
-      const reply = normalizeQuestion(extractOutputText(payload));
       const selectedMove = cleanString(body?.selectedMove, 40);
 
       return json({
