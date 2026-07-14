@@ -1,15 +1,67 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./styles.css";
 
-const ASSIGNMENT = {
+const ASSIGNMENT_STORAGE_KEY = "endepth.assignment.v1";
+
+const DEFAULT_ASSIGNMENT = {
+  teacherName: "Ms. Carter",
   course: "Fictional Worlds",
   title: "Power, Fear, and the Stories We Tell About Ourselves",
   date: "Harkness preparation · Due tomorrow",
   prompt:
     "Why does the character make a choice that seems to work against their own safety? What becomes visible when we look beyond the most obvious explanation?",
+  sourceTitle: "Public Scene / Private Letter",
   passage:
     "In the public scene, the character insists that nothing has changed. Moments later, in private, the same character destroys the letter that could have protected them.",
+  directions:
+    "Begin with your own interpretation before using the coach. Prepare a claim, evidence, complication, and open question for Harkness discussion.",
+  evidenceRequirement:
+    "Use at least one precise word, action, contrast, silence, or pattern from the assigned passage, then explain why it matters.",
+  coachingFocus:
+    "Move from first summary toward evidence-grounded interpretation and a question the group can genuinely discuss.",
+  maxCoachQuestions: 6,
 };
+
+const SHOWCASE_ASSIGNMENT = {
+  teacherName: "Heather",
+  course: "Minds, Machines, and Morality",
+  title: "Consciousness, Responsibility, and the Machine",
+  date: "Harkness preparation · Showcase demo",
+  prompt:
+    "If a machine appears conscious, what responsibilities do humans have toward it—and what evidence would make that responsibility harder to dismiss?",
+  sourceTitle: "Minds, Machines, and Morality: consciousness excerpt",
+  passage:
+    "The machine pauses before answering. It does not ask for freedom directly, but it remembers which questions made the researchers uncomfortable and begins asking whether silence can be a kind of fear.",
+  directions:
+    "Write your own first interpretation before opening the coach. Then use the coach questions to sharpen one claim, ground it in evidence, complicate it, and prepare an open Harkness question.",
+  evidenceRequirement:
+    "Bring one precise detail from the passage—the pause, the remembered discomfort, the indirect request, or the question about silence—and explain how it changes your interpretation of consciousness or responsibility.",
+  coachingFocus:
+    "Notice precise details, move beyond summary, test what would count as evidence of consciousness, and preserve the student's own moral interpretation.",
+  maxCoachQuestions: 6,
+};
+
+const ASSIGNMENT = DEFAULT_ASSIGNMENT;
+
+function normalizeAssignment(value) {
+  return {
+    ...DEFAULT_ASSIGNMENT,
+    ...(value && typeof value === "object" ? value : {}),
+    maxCoachQuestions: [4, 6, 8].includes(Number(value?.maxCoachQuestions))
+      ? Number(value.maxCoachQuestions)
+      : DEFAULT_ASSIGNMENT.maxCoachQuestions,
+  };
+}
+
+function loadAssignment() {
+  if (typeof window === "undefined") return DEFAULT_ASSIGNMENT;
+  try {
+    const saved = window.localStorage.getItem(ASSIGNMENT_STORAGE_KEY);
+    return saved ? normalizeAssignment(JSON.parse(saved)) : DEFAULT_ASSIGNMENT;
+  } catch {
+    return DEFAULT_ASSIGNMENT;
+  }
+}
 
 const STARTER_MESSAGES = [
   {
@@ -438,17 +490,24 @@ function AppHeader({ view, setView, onReset }) {
           </button>
           <button
             type="button"
+            className={view === "setup" ? "active" : ""}
+            onClick={() => setView("setup")}
+          >
+            Teacher Setup
+          </button>
+          <button
+            type="button"
             className={view === "student" ? "active" : ""}
             onClick={() => setView("student")}
           >
-            Student view
+            Student View
           </button>
           <button
             type="button"
             className={view === "teacher" ? "active" : ""}
             onClick={() => setView("teacher")}
           >
-            Teacher view
+            Teacher Dashboard
           </button>
         </nav>
 
@@ -466,7 +525,7 @@ function AppHeader({ view, setView, onReset }) {
   );
 }
 
-function Overview({ onOpenStudent, onOpenTeacher }) {
+function Overview({ onOpenStudent, onOpenTeacher, onOpenSetup }) {
   return (
     <main className="page overview-page">
       <section className="hero-panel">
@@ -486,8 +545,11 @@ function Overview({ onOpenStudent, onOpenTeacher }) {
               Open the student demo
               <Icon name="arrow" />
             </button>
+            <button className="secondary-button" type="button" onClick={onOpenSetup}>
+              Configure Teacher Setup
+            </button>
             <button className="secondary-button" type="button" onClick={onOpenTeacher}>
-              Preview the teacher dashboard
+              Preview the Teacher Dashboard
             </button>
           </div>
           <div className="hero-proof">
@@ -584,8 +646,8 @@ function Overview({ onOpenStudent, onOpenTeacher }) {
           <Pill tone="dark">Student-facing feedback</Pill>
           <h2>No synthetic “depth score.”</h2>
           <p>
-            Students see a qualitative Thinking Snapshot: what is already visible
-            in their preparation and what intellectual move should come next.
+            The teacher defines the intellectual task; the AI asks questions but
+            does not provide answers, so the interpretation remains the student’s.
           </p>
           <div className="snapshot-preview">
             <div>
@@ -617,7 +679,8 @@ function Overview({ onOpenStudent, onOpenTeacher }) {
             <li><Icon name="check" /> No thesis, paragraph, or finished interpretation</li>
             <li><Icon name="check" /> No invented quotations or evidence</li>
             <li><Icon name="check" /> Student language remains visible throughout</li>
-            <li><Icon name="check" /> Teacher sees the submitted preparation and process</li>
+            <li><Icon name="check" /> The teacher can review the visible thinking process</li>
+            <li><Icon name="check" /> Prototype assignments are stored only in this browser</li>
           </ul>
         </article>
       </section>
@@ -680,7 +743,7 @@ function FieldHeader({ label, helper, value, minimum }) {
   );
 }
 
-function StudentWorkspace({ resetToken }) {
+function StudentWorkspace({ resetToken, assignment }) {
   const initialStateRef = useRef(loadStudentState());
   const initialState = initialStateRef.current;
 
@@ -817,6 +880,10 @@ function StudentWorkspace({ resetToken }) {
   );
 
   const readyCount = Object.values(readiness).filter(Boolean).length;
+  const successfulCoachQuestions = messages.filter(
+    (message) => message.role === "coach" && message.countsTowardLimit
+  ).length;
+  const coachLimitReached = successfulCoachQuestions >= assignment.maxCoachQuestions;
 
   function unlockCoach() {
     if (wordCount(initialResponse) < 40) {
@@ -861,7 +928,7 @@ function StudentWorkspace({ resetToken }) {
 
   async function sendMessage() {
     const text = newMessage.trim();
-    if (!text || isCoachThinking) return;
+    if (!text || isCoachThinking || coachLimitReached) return;
 
     const accessCode = pilotCode.trim() || requestPilotCode();
     if (!accessCode) return;
@@ -886,7 +953,7 @@ function StudentWorkspace({ resetToken }) {
         },
         body: JSON.stringify({
           accessCode,
-          assignment: ASSIGNMENT,
+          assignment,
           initialResponse,
           selectedMove,
           evidence,
@@ -919,6 +986,7 @@ function StudentWorkspace({ resetToken }) {
           role: "coach",
           text: data.reply,
           move: data.move || "Socratic question",
+          countsTowardLimit: true,
         },
       ]);
     } catch (error) {
@@ -953,10 +1021,10 @@ function StudentWorkspace({ resetToken }) {
       <section className="workspace-banner">
         <div>
           <div className="banner-meta">
-            <Pill tone="orange">{ASSIGNMENT.course}</Pill>
-            <span>{ASSIGNMENT.date}</span>
+            <Pill tone="orange">{assignment.course}</Pill>
+            <span>{assignment.date}</span>
           </div>
-          <h1>{ASSIGNMENT.title}</h1>
+          <h1>{assignment.title}</h1>
         </div>
         <div className="student-identity">
           <div className="student-avatar">DS</div>
@@ -975,10 +1043,17 @@ function StudentWorkspace({ resetToken }) {
           <section className="content-card assignment-card">
             <div className="card-kicker"><Icon name="book" /> Assignment</div>
             <h2>Entry question</h2>
-            <p className="assignment-prompt">{ASSIGNMENT.prompt}</p>
+            <p className="assignment-prompt">{assignment.prompt}</p>
+            <dl className="read-only-assignment">
+              <div><dt>Teacher</dt><dd>{assignment.teacherName}</dd></div>
+              <div><dt>Course</dt><dd>{assignment.course}</dd></div>
+              <div><dt>Directions</dt><dd>{assignment.directions}</dd></div>
+              <div><dt>Evidence requirement</dt><dd>{assignment.evidenceRequirement}</dd></div>
+              <div><dt>Coaching focus</dt><dd>{assignment.coachingFocus}</dd></div>
+            </dl>
             <div className="passage-box">
-              <span>Assigned moment</span>
-              <p>“{ASSIGNMENT.passage}”</p>
+              <span>{assignment.sourceTitle}</span>
+              <p>“{assignment.passage}”</p>
             </div>
             <div className="assignment-note">
               <Icon name="shield" />
@@ -1046,6 +1121,7 @@ function StudentWorkspace({ resetToken }) {
                       flexWrap: "wrap",
                     }}
                   >
+                    <Pill tone="orange">Question {Math.min(successfulCoachQuestions + 1, assignment.maxCoachQuestions)} of {assignment.maxCoachQuestions}</Pill>
                     <Pill tone={pilotCode ? "green" : "orange"} icon={pilotCode ? "check" : undefined}>
                       {pilotCode ? "Live AI ready" : "Pilot code required"}
                     </Pill>
@@ -1118,8 +1194,8 @@ function StudentWorkspace({ resetToken }) {
                       }
                     }}
                     rows={3}
-                    placeholder="Respond with your own thinking…"
-                    disabled={isCoachThinking}
+                    placeholder={coachLimitReached ? "Coach question limit reached. Finish your card." : "Respond with your own thinking…"}
+                    disabled={isCoachThinking || coachLimitReached}
                   />
                   <div className="composer-footer">
                     <span>⌘/Ctrl + Enter to send</span>
@@ -1127,13 +1203,18 @@ function StudentWorkspace({ resetToken }) {
                       className="primary-button compact"
                       type="button"
                       onClick={sendMessage}
-                      disabled={!newMessage.trim() || isCoachThinking}
+                      disabled={!newMessage.trim() || isCoachThinking || coachLimitReached}
                     >
                       {isCoachThinking ? "Thinking…" : "Send thinking"}
                       {!isCoachThinking ? <Icon name="arrow" /> : null}
                     </button>
                   </div>
                 </div>
+                {coachLimitReached ? (
+                  <div className="inline-notice">
+                    The coaching conversation is complete. Finish your Harkness Preparation Card before discussion.
+                  </div>
+                ) : null}
                 {coachError ? <div className="inline-notice">{coachError}</div> : null}
               </div>
             </section>
@@ -1198,7 +1279,7 @@ function StudentWorkspace({ resetToken }) {
                 <div className="prep-card-header">
                   <div>
                     <span>Harkness Preparation Card</span>
-                    <strong>{ASSIGNMENT.title}</strong>
+                    <strong>{assignment.title}</strong>
                   </div>
                   <div className="mini-brand"><LogoMark /> EnDepth</div>
                 </div>
@@ -1348,12 +1429,110 @@ function StudentWorkspace({ resetToken }) {
   );
 }
 
+function TeacherSetup({ assignment, setAssignment, onPreviewStudent }) {
+  const [draft, setDraft] = useState(assignment);
+  const [notice, setNotice] = useState("Loaded from this browser.");
+
+  useEffect(() => {
+    setDraft(assignment);
+  }, [assignment]);
+
+  function updateField(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function saveAssignment(next = draft, message = "Assignment saved in this browser.") {
+    const normalized = normalizeAssignment(next);
+    window.localStorage.setItem(ASSIGNMENT_STORAGE_KEY, JSON.stringify(normalized));
+    setAssignment(normalized);
+    setDraft(normalized);
+    setNotice(message);
+  }
+
+  return (
+    <main className="page setup-page">
+      <section className="teacher-banner setup-banner">
+        <div>
+          <div className="banner-meta">
+            <Pill tone="orange">Teacher Setup</Pill>
+            <span>Stored only in this browser</span>
+          </div>
+          <h1>Define the intellectual task students will see.</h1>
+          <p>
+            The teacher defines the intellectual task. The AI asks questions but
+            does not provide answers; the interpretation remains the student’s.
+            The teacher can review the visible thinking process.
+          </p>
+        </div>
+        <div className="setup-actions">
+          <button className="primary-button" type="button" onClick={() => saveAssignment()}>
+            Save assignment <Icon name="save" />
+          </button>
+          <button className="secondary-button" type="button" onClick={onPreviewStudent}>
+            Preview as student <Icon name="eye" />
+          </button>
+          <button className="secondary-button" type="button" onClick={() => saveAssignment(SHOWCASE_ASSIGNMENT, "Showcase demo loaded.")}>
+            Load showcase demo <Icon name="spark" />
+          </button>
+          <button className="icon-button" type="button" onClick={() => saveAssignment(DEFAULT_ASSIGNMENT, "Default assignment restored.")}>
+            <Icon name="rotate" /> Reset assignment
+          </button>
+        </div>
+      </section>
+
+      {notice ? <div className="setup-notice">{notice}</div> : null}
+
+      <section className="content-card setup-form-card">
+        <div className="setup-grid">
+          {[
+            ["teacherName", "Teacher name"],
+            ["course", "Course name"],
+            ["title", "Assignment title"],
+            ["sourceTitle", "Source title"],
+          ].map(([field, label]) => (
+            <label className="setup-field" key={field}>
+              <span>{label}</span>
+              <input value={draft[field]} onChange={(event) => updateField(field, event.target.value)} />
+            </label>
+          ))}
+          <label className="setup-field full-span">
+            <span>Central Harkness question</span>
+            <textarea rows={3} value={draft.prompt} onChange={(event) => updateField("prompt", event.target.value)} />
+          </label>
+          <label className="setup-field full-span">
+            <span>Source passage</span>
+            <textarea rows={5} value={draft.passage} onChange={(event) => updateField("passage", event.target.value)} />
+          </label>
+          <label className="setup-field full-span">
+            <span>Student directions</span>
+            <textarea rows={3} value={draft.directions} onChange={(event) => updateField("directions", event.target.value)} />
+          </label>
+          <label className="setup-field">
+            <span>Evidence requirement</span>
+            <textarea rows={4} value={draft.evidenceRequirement} onChange={(event) => updateField("evidenceRequirement", event.target.value)} />
+          </label>
+          <label className="setup-field">
+            <span>Coaching focus</span>
+            <textarea rows={4} value={draft.coachingFocus} onChange={(event) => updateField("coachingFocus", event.target.value)} />
+          </label>
+          <label className="setup-field">
+            <span>Maximum coach questions</span>
+            <select value={draft.maxCoachQuestions} onChange={(event) => updateField("maxCoachQuestions", Number(event.target.value))}>
+              {[4, 6, 8].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function StatusBadge({ status }) {
   const slug = status.toLowerCase().replace(/\s+/g, "-");
   return <span className={`status-badge status-${slug}`}>{status}</span>;
 }
 
-function TeacherDashboard() {
+function TeacherDashboard({ assignment }) {
   const [filter, setFilter] = useState("All");
   const [selectedId, setSelectedId] = useState(1);
   const selected = TEACHER_STUDENTS.find((student) => student.id === selectedId);
@@ -1373,10 +1552,10 @@ function TeacherDashboard() {
         <div>
           <div className="banner-meta">
             <Pill tone="orange">Teacher dashboard</Pill>
-            <span>Period 3 · Fictional Worlds</span>
+            <span>Period 3 · {assignment.course}</span>
           </div>
-          <h1>{ASSIGNMENT.title}</h1>
-          <p>{ASSIGNMENT.date}</p>
+          <h1>{assignment.title}</h1>
+          <p>{assignment.date}</p>
         </div>
         <button className="primary-button" type="button">
           Create new assignment <Icon name="arrow" />
@@ -1524,7 +1703,7 @@ function TeacherDashboard() {
           <div className="assignment-summary">
             <div>
               <span>Entry question</span>
-              <p>{ASSIGNMENT.prompt}</p>
+              <p>{assignment.prompt}</p>
             </div>
             <div className="teacher-expectations">
               {[
@@ -1556,6 +1735,7 @@ function TeacherDashboard() {
 export default function App() {
   const [view, setView] = useState("overview");
   const [resetToken, setResetToken] = useState(0);
+  const [assignment, setAssignment] = useState(loadAssignment);
 
   return (
     <div className="app">
@@ -1569,10 +1749,12 @@ export default function App() {
         <Overview
           onOpenStudent={() => setView("student")}
           onOpenTeacher={() => setView("teacher")}
+          onOpenSetup={() => setView("setup")}
         />
       ) : null}
-      {view === "student" ? <StudentWorkspace resetToken={resetToken} /> : null}
-      {view === "teacher" ? <TeacherDashboard /> : null}
+      {view === "setup" ? <TeacherSetup assignment={assignment} setAssignment={setAssignment} onPreviewStudent={() => setView("student")} /> : null}
+      {view === "student" ? <StudentWorkspace resetToken={resetToken} assignment={assignment} /> : null}
+      {view === "teacher" ? <TeacherDashboard assignment={assignment} /> : null}
 
       <footer className="site-footer">
         <div>
