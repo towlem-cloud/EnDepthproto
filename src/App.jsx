@@ -1,21 +1,67 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import "./styles.css";
 import "./showcase.css";
 import "./submissions.css";
+import "./multiTeacher.css";
+import PublicAssignmentPage from "./PublicAssignmentPage";
+import StaffPortal from "./StaffPortal";
 import StudentSubmissionFlow from "./StudentSubmissionFlow";
-import TeacherSubmissions from "./TeacherSubmissions";
-import { TeacherSetup } from "./TeacherViews";
-import { AppHeader, LogoMark, Overview } from "./endepthUI";
+import { Icon, LogoMark, Overview, Pill } from "./endepthUI";
 import { loadAssignment } from "./endepthConfig";
 
+function PilotHeader({ view, setView, onReset }) {
+  return (
+    <header className="topbar">
+      <div className="topbar-inner">
+        <button className="brand" type="button" onClick={() => setView("overview")}>
+          <LogoMark />
+          <span><strong>EnDepth</strong><small>Private Harkness preparation</small></span>
+        </button>
+        <nav className="view-switch" aria-label="EnDepth views">
+          {[
+            ["overview", "Overview"],
+            ["staff", "Teacher Portal"],
+            ["student", "Student Preview"],
+          ].map(([id, label]) => (
+            <button
+              type="button"
+              key={id}
+              className={view === id ? "active" : ""}
+              onClick={() => setView(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="topbar-actions">
+          <Pill tone="orange">Two-teacher pilot</Pill>
+          {view === "student" ? (
+            <button className="icon-button" type="button" onClick={onReset}>
+              <Icon name="rotate" /><span>Reset preview</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </header>
+  );
+}
+
 export default function App() {
+  const assignmentSlug = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("assignment") || "";
+  }, []);
   const [view, setView] = useState("overview");
   const [resetToken, setResetToken] = useState(0);
-  const [assignment, setAssignment] = useState(loadAssignment);
+  const [assignment] = useState(loadAssignment);
+
+  if (assignmentSlug) {
+    return <PublicAssignmentPage slug={assignmentSlug} />;
+  }
 
   return (
     <div className="app">
-      <AppHeader
+      <PilotHeader
         view={view}
         setView={setView}
         onReset={() => setResetToken((value) => value + 1)}
@@ -24,36 +70,25 @@ export default function App() {
       {view === "overview" ? (
         <Overview
           onOpenStudent={() => setView("student")}
-          onOpenTeacher={() => setView("teacher")}
-          onOpenSetup={() => setView("teacherSetup")}
+          onOpenTeacher={() => setView("staff")}
+          onOpenSetup={() => setView("staff")}
         />
       ) : null}
-      {view === "teacherSetup" ? (
-        <TeacherSetup
-          assignment={assignment}
-          onSave={setAssignment}
-          onPreviewStudent={() => setView("student")}
-        />
-      ) : null}
+      {view === "staff" ? <StaffPortal /> : null}
       {view === "student" ? (
-        <StudentSubmissionFlow resetToken={resetToken} assignment={assignment} />
-      ) : null}
-      {view === "teacher" ? (
-        <TeacherSubmissions
+        <StudentSubmissionFlow
+          resetToken={resetToken}
           assignment={assignment}
-          onEditAssignment={() => setView("teacherSetup")}
+          demoMode
         />
       ) : null}
 
       <footer className="site-footer">
-        <div>
-          <LogoMark />
-          <span>EnDepth classroom pilot</span>
-        </div>
+        <div><LogoMark /><span>EnDepth multi-teacher pilot</span></div>
         <p>
-          Student names and submitted preparation are stored in the connected
-          classroom database. Names are not included in OpenAI coach requests.
-          Teacher records require a separate private access code.
+          Teachers create database-backed assignments and post unique student
+          links. Student identity stays out of OpenAI requests, and teacher access
+          is separated on the server.
         </p>
       </footer>
     </div>
