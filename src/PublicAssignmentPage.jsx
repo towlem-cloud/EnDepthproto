@@ -19,10 +19,24 @@ export default function PublicAssignmentPage({ slug }) {
           `/api/assignment-public?slug=${encodeURIComponent(slug)}`
         );
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || "The assignment could not be loaded.");
-        if (active) setAssignment(normalizeAssignment(data.assignment));
+        if (!response.ok) {
+          throw new Error(data.error || "The assignment could not be loaded.");
+        }
+        if (active) {
+          setAssignment(
+            normalizeAssignment({
+              ...data.assignment,
+              // The database update timestamp is not part of the student's
+              // academic assignment. Excluding it keeps a no-op teacher save
+              // from creating a new browser workspace key.
+              updatedAt: "",
+            })
+          );
+        }
       } catch (loadError) {
-        if (active) setError(loadError.message || "The assignment could not be loaded.");
+        if (active) {
+          setError(loadError.message || "The assignment could not be loaded.");
+        }
       } finally {
         if (active) setLoading(false);
       }
