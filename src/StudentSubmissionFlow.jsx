@@ -8,8 +8,8 @@ import {
   wordCount,
 } from "./endepthConfig";
 
-const IDENTITY_STORAGE_KEY = "endepth-student-identity-v1";
-const SUBMISSION_META_PREFIX = "endepth-submission-meta-v1";
+const IDENTITY_STORAGE_KEY = "endepth-student-identity-v2";
+const SUBMISSION_META_PREFIX = "endepth-submission-meta-v2";
 
 function loadJson(key, fallback) {
   if (typeof window === "undefined") return fallback;
@@ -37,6 +37,10 @@ function createSubmissionId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function validEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
 function validateWorkspace(workspace) {
   if (!workspace) {
     return "Your preparation has not finished saving in this browser yet. Try submitting again.";
@@ -62,23 +66,33 @@ function validateWorkspace(workspace) {
   return "";
 }
 
-export default function StudentSubmissionFlow({ resetToken, assignment }) {
+export default function StudentSubmissionFlow({
+  resetToken,
+  assignment,
+  demoMode = false,
+}) {
   const assignmentSignature = stableAssignmentKey(assignment);
   const submissionMetaKey = useMemo(
     () => `${SUBMISSION_META_PREFIX}:${shortHash(assignmentSignature)}`,
     [assignmentSignature]
   );
   const savedIdentity = useMemo(() => {
-    if (typeof window === "undefined") return { firstName: "", lastName: "" };
+    if (demoMode || typeof window === "undefined") {
+      return { firstName: "", lastName: "", email: "" };
+    }
     try {
       const value = window.sessionStorage.getItem(IDENTITY_STORAGE_KEY);
-      return value ? JSON.parse(value) : { firstName: "", lastName: "" };
+      return value
+        ? JSON.parse(value)
+        : { firstName: "", lastName: "", email: "" };
     } catch {
-      return { firstName: "", lastName: "" };
+      return { firstName: "", lastName: "", email: "" };
     }
-  }, []);
+  }, [demoMode]);
+
   const [firstName, setFirstName] = useState(savedIdentity.firstName || "");
   const [lastName, setLastName] = useState(savedIdentity.lastName || "");
+  const [email, setEmail] = useState(savedIdentity.email || "");
   const [submissionId, setSubmissionId] = useState("");
   const [submittedAt, setSubmittedAt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -86,41 +100,43 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
   const [submissionNotice, setSubmissionNotice] = useState("");
 
   useEffect(() => {
+    if (demoMode) return;
     const meta = loadJson(submissionMetaKey, {});
     setSubmissionId(meta.submissionId || "");
     setSubmittedAt(meta.submittedAt || "");
     setSubmissionError("");
     setSubmissionNotice("");
-  }, [submissionMetaKey]);
+  }, [submissionMetaKey, demoMode]);
 
   useEffect(() => {
-    if (resetToken === 0) return;
+    if (resetToken === 0 || demoMode) return;
     try {
       window.localStorage.removeItem(submissionMetaKey);
     } catch {
-      // A reset still clears the visible status if browser storage is unavailable.
+      // Visible status is still cleared below.
     }
     setSubmissionId("");
     setSubmittedAt("");
     setSubmissionError("");
     setSubmissionNotice("");
-  }, [resetToken, submissionMetaKey]);
+  }, [resetToken, submissionMetaKey, demoMode]);
 
   useEffect(() => {
+    if (demoMode) return;
     try {
       window.sessionStorage.setItem(
         IDENTITY_STORAGE_KEY,
-        JSON.stringify({ firstName, lastName })
+        JSON.stringify({ firstName, lastName, email })
       );
     } catch {
-      // The name fields still work even when browser storage is unavailable.
+      // Identity fields still work without browser storage.
     }
-  }, [firstName, lastName]);
+  }, [firstName, lastName, email, demoMode]);
 
   function requestPilotCode() {
     const currentCode = window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY) || "";
     const entered = window.prompt(
-      "Enter the EnDepth pilot access code before submitting to your teacher.",
+      "Enter the EnDepth student pilot code before submitting.",
       currentCode
     );
     if (entered === null) return "";
@@ -132,8 +148,10 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
   }
 
   async function submitPreparation() {
+    if (demoMode) return;
     const cleanFirstName = firstName.trim();
     const cleanLastName = lastName.trim();
+    const cleanEmail = email.trim().toLowerCase();
     setSubmissionError("");
     setSubmissionNotice("");
 
@@ -141,12 +159,20 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
       setSubmissionError("Enter both your first and last name before submitting.");
       return;
     }
+    if (!validEmail(cleanEmail)) {
+      setSubmissionError("Enter your complete student email address before submitting.");
+      return;
+    }
+    if (!assignment.assignmentId) {
+      setSubmissionError("Open the student link your teacher posted for this assignment.");
+      return;
+    }
 
     const accessCode =
       window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY)?.trim() ||
       requestPilotCode();
     if (!accessCode) {
-      setSubmissionError("The class pilot code is required to submit.");
+      setSubmissionError("The student pilot code is required to submit.");
       return;
     }
 
@@ -164,10 +190,12 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
         body: JSON.stringify({
           accessCode,
           submissionId: nextSubmissionId,
+          assignmentId: assignment.assignmentId,
           assignment,
           student: {
             firstName: cleanFirstName,
             lastName: cleanLastName,
+            email: cleanEmail,
           },
           work: {
             initialResponse: workspace.initialResponse,
@@ -210,7 +238,9 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
   }
 
   const displayName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
-  const initials = `${firstName.trim().slice(0, 1)}${lastName.trim().slice(0, 1)}`.toUpperCase() || "ST";
+  const initials = `${firstName.trim().slice(0, 1)}${lastName
+    .trim()
+    .slice(0, 1)}`.toUpperCase() || "ST";
 
   return (
     <>
@@ -219,15 +249,18 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
           <div className="real-identity-heading">
             <div className="real-identity-avatar">{initials}</div>
             <div>
-              <div className="card-kicker">Student identity</div>
-              <h2>{displayName || "Enter your name before you begin"}</h2>
+              <div className="card-kicker">
+                {demoMode ? "Student preview" : "Student identity"}
+              </div>
+              <h2>{displayName || "Enter your school information before you begin"}</h2>
               <p>
-                Your name is attached to the record your teacher receives. It is
-                not included in requests sent to the AI coach.
+                Your name and student email are attached to the classroom record
+                your teacher receives. Neither is included in requests sent to the
+                AI coach.
               </p>
             </div>
           </div>
-          <div className="student-name-grid">
+          <div className="student-name-grid student-identity-grid-three">
             <label>
               <span>First name</span>
               <input
@@ -246,6 +279,17 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
                 maxLength={80}
               />
             </label>
+            <label>
+              <span>Student email</span>
+              <input
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                maxLength={254}
+                placeholder="student@school.org"
+              />
+            </label>
           </div>
         </section>
       </div>
@@ -255,23 +299,31 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
       <div className="page real-submit-page">
         <section className="content-card real-submit-card">
           <div className="real-submit-copy">
-            <div className="card-kicker">Real classroom submission</div>
-            <h2>Send your preparation to {assignment.teacherName}</h2>
+            <div className="card-kicker">
+              {demoMode ? "Preview mode" : "Classroom submission"}
+            </div>
+            <h2>
+              {demoMode
+                ? "The live student link submits here"
+                : `Send your preparation to ${assignment.teacherName}`}
+            </h2>
             <p>
-              EnDepth will send your initial response, preparation card, evidence,
-              and coaching conversation. Your teacher can review the visible
-              movement in your thinking.
+              {demoMode
+                ? "This homepage preview does not create a database record. Teachers generate a unique student link from the Teacher Portal."
+                : "EnDepth sends your initial response, preparation card, evidence, and coaching conversation to your assigned teacher."}
             </p>
             <div className="submission-privacy-note">
               <Icon name="shield" />
               <span>
-                Your name is stored with the classroom submission but is never
-                added to the OpenAI coaching request.
+                The database record includes your name and student email. OpenAI
+                receives only the academic thinking needed to ask the next question.
               </span>
             </div>
           </div>
           <div className="real-submit-actions">
-            {submittedAt ? (
+            {demoMode ? (
+              <Pill tone="neutral">No record created in preview</Pill>
+            ) : submittedAt ? (
               <Pill tone="green" icon="check">
                 Submitted {new Date(submittedAt).toLocaleString()}
               </Pill>
@@ -282,14 +334,16 @@ export default function StudentSubmissionFlow({ resetToken, assignment }) {
               className="primary-button"
               type="button"
               onClick={submitPreparation}
-              disabled={isSubmitting}
+              disabled={isSubmitting || demoMode}
             >
-              {isSubmitting
+              {demoMode
+                ? "Use a teacher-created link"
+                : isSubmitting
                 ? "Submitting…"
                 : submissionId
                 ? "Update submission"
                 : "Submit preparation"}
-              {!isSubmitting ? <Icon name="arrow" /> : null}
+              {!isSubmitting && !demoMode ? <Icon name="arrow" /> : null}
             </button>
           </div>
           {submissionNotice ? (
