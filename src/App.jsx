@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import "./styles.css";
 import "./showcase.css";
-import StudentWorkspace from "./StudentWorkspace";
-import { TeacherDashboard, TeacherSetup } from "./TeacherViews";
+import "./submissions.css";
+import StudentSubmissionFlow from "./StudentSubmissionFlow";
+import TeacherSubmissions from "./TeacherSubmissions";
+import { TeacherSetup } from "./TeacherViews";
 import { AppHeader, LogoMark, Overview } from "./endepthUI";
 import { loadAssignment } from "./endepthConfig";
 
@@ -34,10 +36,10 @@ export default function App() {
         />
       ) : null}
       {view === "student" ? (
-        <StudentWorkspace resetToken={resetToken} assignment={assignment} />
+        <StudentSubmissionFlow resetToken={resetToken} assignment={assignment} />
       ) : null}
       {view === "teacher" ? (
-        <TeacherDashboard
+        <TeacherSubmissions
           assignment={assignment}
           onEditAssignment={() => setView("teacherSetup")}
         />
@@ -46,12 +48,12 @@ export default function App() {
       <footer className="site-footer">
         <div>
           <LogoMark />
-          <span>EnDepth interactive prototype</span>
+          <span>EnDepth classroom pilot</span>
         </div>
         <p>
-          Live-coach prototype. Student drafts and teacher-created assignments
-          remain in this browser; coach requests use OpenAI through a protected
-          server route. Dashboard records are fictional showcase data.
+          Student names and submitted preparation are stored in the connected
+          classroom database. Names are not included in OpenAI coach requests.
+          Teacher records require a separate private access code.
         </p>
       </footer>
     </div>
