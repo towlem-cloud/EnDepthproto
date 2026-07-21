@@ -1,3 +1,4 @@
+import { ensureAtomicCapacityGuard } from "./capacity-guard.js";
 import {
   cleanMessages,
   cleanString,
@@ -74,6 +75,7 @@ export default {
     }
 
     try {
+      await ensureAtomicCapacityGuard();
       const row = await upsertSubmission({
         submissionId: submissionIdFrom(body),
         assignmentId,
@@ -95,13 +97,13 @@ export default {
       });
     } catch (error) {
       const code = error instanceof Error ? error.message : "";
-      if (code === "ASSIGNMENT_CAPACITY_REACHED") {
+      if (code.includes("ASSIGNMENT_CAPACITY_REACHED")) {
         return json(
           { error: "This class section has reached its 17-student pilot limit." },
           409
         );
       }
-      if (code === "ASSIGNMENT_NOT_OPEN") {
+      if (code.includes("ASSIGNMENT_NOT_OPEN")) {
         return json({ error: "This assignment is no longer open for submissions." }, 409);
       }
       console.error("EnDepth submission failed", error);
