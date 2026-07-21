@@ -5,6 +5,7 @@ import {
   json,
   listSubmissionsForStaff,
 } from "./submissions-db.js";
+import { backfillLegacySubmissionOwnership } from "./ownership-maintenance.js";
 
 export default {
   async fetch(request) {
@@ -30,6 +31,7 @@ export default {
       const staff = await authenticateStaffCode(suppliedCode);
       if (!staff) return json({ error: "The staff code was not accepted." }, 401);
 
+      await backfillLegacySubmissionOwnership();
       const submissions = await listSubmissionsForStaff(
         staff,
         body.assignmentId,
