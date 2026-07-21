@@ -3,11 +3,7 @@ import {
   releaseCoachTurn,
   reserveCoachTurn,
 } from "./coach-usage.js";
-import {
-  getAssignmentById,
-  isValidEmail,
-  normalizeEmail,
-} from "./submissions-db.js";
+import { getAssignmentById } from "./submissions-db.js";
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const MODERATION_MODEL =
@@ -226,9 +222,9 @@ Ask the single best next question now.
 `;
 }
 
-async function safelyRelease(assignmentId, studentEmail) {
+async function safelyRelease(assignmentId, studentCoachKey) {
   try {
-    await releaseCoachTurn(assignmentId, studentEmail);
+    await releaseCoachTurn(assignmentId, studentCoachKey);
   } catch (error) {
     console.error("EnDepth coach reservation release failed", error);
   }
@@ -261,8 +257,8 @@ export default {
       body?.assignmentId || body?.assignment?.assignmentId,
       100
     );
-    const studentEmail = normalizeEmail(body?.studentEmail);
-    if (!assignmentId || !isValidEmail(studentEmail)) {
+    const studentCoachKey = cleanString(body?.studentCoachKey, 64).toLowerCase();
+    if (!assignmentId || !/^[a-f0-9]{64}$/.test(studentCoachKey)) {
       return json(
         {
           error:
@@ -305,7 +301,7 @@ export default {
         });
       }
 
-      const reservation = await reserveCoachTurn(assignmentId, studentEmail);
+      const reservation = await reserveCoachTurn(assignmentId, studentCoachKey);
       if (!reservation.reserved) {
         return json(
           {
@@ -340,7 +336,7 @@ export default {
       const payload = await openAIResponse.json().catch(() => ({}));
 
       if (!openAIResponse.ok) {
-        await safelyRelease(assignmentId, studentEmail);
+        await safelyRelease(assignmentId, studentCoachKey);
         reservationHeld = false;
         console.error("OpenAI response error", {
           status: openAIResponse.status,
@@ -367,7 +363,7 @@ export default {
       const rawReply = extractOutputText(payload);
       const outputModeration = await moderateText(rawReply);
       if (hasUrgentSafetySignal(outputModeration)) {
-        await safelyRelease(assignmentId, studentEmail);
+        await safelyRelease(assignmentId, studentCoachKey);
         reservationHeld = false;
         return json({
           move: "Return to the text",
@@ -381,7 +377,7 @@ export default {
       const selectedMove = cleanString(body?.selectedMove, 40);
       const successfulQuestions = await finalizeCoachTurn(
         assignmentId,
-        studentEmail
+        studentCoachKey
       );
       reservationHeld = false;
 
@@ -394,7 +390,7 @@ export default {
         },
       });
     } catch (error) {
-      if (reservationHeld) await safelyRelease(assignmentId, studentEmail);
+      if (reservationHeld) await safelyRelease(assignmentId, studentCoachKey);
       const message = error instanceof Error ? error.message : "";
       if (message.includes("ASSIGNMENT_NOT_OPEN")) {
         return json({ error: "This assignment is no longer open for coaching." }, 409);
