@@ -5,6 +5,7 @@ import {
   listAssignmentsForStaff,
   saveAssignmentForStaff,
 } from "./submissions-db.js";
+import { syncAssignmentSubmissionOwnership } from "./ownership-maintenance.js";
 
 function assignmentError(error) {
   const code = error instanceof Error ? error.message : "";
@@ -48,6 +49,11 @@ export default {
         const assignment = await saveAssignmentForStaff(
           staff,
           body.assignment || {}
+        );
+        await syncAssignmentSubmissionOwnership(
+          assignment.assignmentId,
+          assignment.teacherId,
+          assignment.teacherName
         );
         return json({
           assignment,
