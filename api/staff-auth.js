@@ -3,6 +3,7 @@ import {
   databaseIsConfigured,
   json,
 } from "./submissions-db.js";
+import { backfillLegacySubmissionOwnership } from "./ownership-maintenance.js";
 
 export default {
   async fetch(request) {
@@ -25,6 +26,7 @@ export default {
       if (!staff) {
         return json({ error: "That teacher or admin code was not accepted." }, 401);
       }
+      await backfillLegacySubmissionOwnership();
       return json({ staff });
     } catch (error) {
       console.error("EnDepth staff authentication failed", error);
