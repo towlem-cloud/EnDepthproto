@@ -1,6 +1,18 @@
+import {
+  finalizeCoachTurn,
+  releaseCoachTurn,
+  reserveCoachTurn,
+} from "./coach-usage.js";
+import {
+  getAssignmentById,
+  isValidEmail,
+  normalizeEmail,
+} from "./submissions-db.js";
+
 const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const MODERATION_MODEL =
   process.env.OPENAI_MODERATION_MODEL || "omni-moderation-latest";
+const PILOT_COACH_LIMIT = 4;
 
 const MOVE_LABELS = {
   clarify: "Clarify the claim",
@@ -76,9 +88,7 @@ Intellectually serious, calm, concise, and curious. Do not sound therapeutic, ov
 function json(data, status = 200) {
   return Response.json(data, {
     status,
-    headers: {
-      "Cache-Control": "no-store",
-    },
+    headers: { "Cache-Control": "no-store" },
   });
 }
 
@@ -88,7 +98,6 @@ function cleanString(value, maxLength) {
 
 function extractOutputText(payload) {
   if (typeof payload?.output_text === "string") return payload.output_text;
-
   for (const item of payload?.output || []) {
     if (item?.type !== "message") continue;
     for (const content of item.content || []) {
@@ -100,7 +109,6 @@ function extractOutputText(payload) {
       }
     }
   }
-
   return "";
 }
 
@@ -113,18 +121,11 @@ function normalizeQuestion(value) {
     .trim();
 
   const firstQuestionMark = question.indexOf("?");
-  if (firstQuestionMark >= 0) {
-    question = question.slice(0, firstQuestionMark + 1);
-  }
-
+  if (firstQuestionMark >= 0) question = question.slice(0, firstQuestionMark + 1);
   if (!question) {
     return "Which exact part of your own interpretation most needs to become more precise before you can defend it?";
   }
-
-  if (!question.endsWith("?")) {
-    question = `${question.replace(/[.!]+$/, "")}?`;
-  }
-
+  if (!question.endsWith("?")) question = `${question.replace(/[.!]+$/, "")}?`;
   return question.slice(0, 360);
 }
 
@@ -145,12 +146,8 @@ async function moderateText(input) {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: MODERATION_MODEL,
-      input,
-    }),
+    body: JSON.stringify({ model: MODERATION_MODEL, input }),
   });
-
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     console.error("OpenAI moderation error", {
@@ -159,7 +156,6 @@ async function moderateText(input) {
     });
     return null;
   }
-
   return Array.isArray(payload?.results) ? payload.results[0] : null;
 }
 
@@ -171,12 +167,6 @@ function buildContext({
   significance,
   messages,
 }) {
-  const maxCoachQuestions = [4, 6, 8].includes(
-    Number(assignment?.maxCoachQuestions)
-  )
-    ? Number(assignment.maxCoachQuestions)
-    : 6;
-
   const safeAssignment = {
     course: cleanString(assignment?.course, 120),
     title: cleanString(assignment?.title, 240),
@@ -184,12 +174,8 @@ function buildContext({
     sourceTitle: cleanString(assignment?.sourceTitle, 240),
     passage: cleanString(assignment?.passage, 4000),
     directions: cleanString(assignment?.directions, 1800),
-    evidenceRequirement: cleanString(
-      assignment?.evidenceRequirement,
-      1800
-    ),
+    evidenceRequirement: cleanString(assignment?.evidenceRequirement, 1800),
     coachingFocus: cleanString(assignment?.coachingFocus, 240),
-    maxCoachQuestions,
   };
 
   const safeMessages = Array.isArray(messages)
@@ -205,7 +191,6 @@ function buildContext({
   const conversation = safeMessages
     .map((message) => `${message.role.toUpperCase()}: ${message.text}`)
     .join("\n");
-
   const moveDirection =
     MOVE_DIRECTIONS[selectedMove] ||
     "Ask the most useful next Socratic question based on what the student has already written.";
@@ -220,7 +205,7 @@ Assigned source or passage: ${safeAssignment.passage || "Not provided"}
 Teacher directions: ${safeAssignment.directions || "Not provided"}
 Evidence requirement: ${safeAssignment.evidenceRequirement || "Not provided"}
 Teacher-selected coaching focus: ${safeAssignment.coachingFocus || "Balanced preparation"}
-Maximum live coach questions: ${safeAssignment.maxCoachQuestions}
+Maximum live coach questions: ${PILOT_COACH_LIMIT}
 
 STUDENT'S ORIGINAL THINKING
 ${cleanString(initialResponse, 5000) || "Not provided"}
@@ -241,27 +226,25 @@ Ask the single best next question now.
 `;
 }
 
+async function safelyRelease(assignmentId, studentEmail) {
+  try {
+    await releaseCoachTurn(assignmentId, studentEmail);
+  } catch (error) {
+    console.error("EnDepth coach reservation release failed", error);
+  }
+}
+
 export default {
   async fetch(request) {
     if (request.method !== "POST") {
       return json({ error: "Use POST for this endpoint." }, 405);
     }
-
     if (!process.env.OPENAI_API_KEY) {
-      console.error("OPENAI_API_KEY is missing in Vercel.");
-      return json(
-        { error: "The live coach has not been connected correctly yet." },
-        503
-      );
+      return json({ error: "The live coach has not been connected correctly yet." }, 503);
     }
-
     const requiredCode = process.env.ENDEPTH_ACCESS_CODE;
     if (!requiredCode) {
-      console.error("ENDEPTH_ACCESS_CODE is missing in Vercel.");
-      return json(
-        { error: "The pilot access code has not been configured yet." },
-        503
-      );
+      return json({ error: "The pilot access code has not been configured yet." }, 503);
     }
 
     let body;
@@ -270,21 +253,46 @@ export default {
     } catch {
       return json({ error: "The coach received an invalid request." }, 400);
     }
-
     if (cleanString(body?.accessCode, 200) !== requiredCode) {
       return json({ error: "The pilot access code was not accepted." }, 401);
+    }
+
+    const assignmentId = cleanString(
+      body?.assignmentId || body?.assignment?.assignmentId,
+      100
+    );
+    const studentEmail = normalizeEmail(body?.studentEmail);
+    if (!assignmentId || !isValidEmail(studentEmail)) {
+      return json(
+        {
+          error:
+            "Enter your student email and use the assignment link your teacher posted before opening the live coach.",
+        },
+        400
+      );
     }
 
     const messages = Array.isArray(body?.messages) ? body.messages : [];
     const latestStudentMessage = [...messages]
       .reverse()
       .find((message) => message?.role === "student");
-
     if (!cleanString(latestStudentMessage?.text, 1800)) {
       return json({ error: "Write a response before asking the coach." }, 400);
     }
 
-    const context = buildContext(body);
+    let assignment;
+    try {
+      assignment = await getAssignmentById(assignmentId);
+    } catch (error) {
+      console.error("EnDepth assignment lookup failed", error);
+      return json({ error: "The assignment could not be verified." }, 500);
+    }
+    if (!assignment || assignment.status !== "open") {
+      return json({ error: "This assignment is no longer open for coaching." }, 409);
+    }
+
+    const context = buildContext({ ...body, assignment });
+    let reservationHeld = false;
 
     try {
       const inputModeration = await moderateText(context);
@@ -296,6 +304,23 @@ export default {
             "Could this be about your own immediate safety rather than only the text, and can you tell your teacher or another trusted adult right now?",
         });
       }
+
+      const reservation = await reserveCoachTurn(assignmentId, studentEmail);
+      if (!reservation.reserved) {
+        return json(
+          {
+            error:
+              "You have completed the four live coaching questions for this assignment. Finish your Harkness Preparation Card.",
+            limitReached: true,
+            usage: {
+              successfulQuestions: reservation.successfulCount,
+              limit: PILOT_COACH_LIMIT,
+            },
+          },
+          409
+        );
+      }
+      reservationHeld = true;
 
       const openAIResponse = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -312,22 +337,21 @@ export default {
           input: context,
         }),
       });
-
       const payload = await openAIResponse.json().catch(() => ({}));
 
       if (!openAIResponse.ok) {
+        await safelyRelease(assignmentId, studentEmail);
+        reservationHeld = false;
         console.error("OpenAI response error", {
           status: openAIResponse.status,
           error: payload?.error?.message || payload,
         });
-
         if (openAIResponse.status === 401) {
           return json(
             { error: "The OpenAI key was rejected. Check the key saved in Vercel." },
             502
           );
         }
-
         if (openAIResponse.status === 429) {
           return json(
             {
@@ -337,16 +361,14 @@ export default {
             503
           );
         }
-
-        return json(
-          { error: "The live coach could not respond. Please try again." },
-          502
-        );
+        return json({ error: "The live coach could not respond. Please try again." }, 502);
       }
 
       const rawReply = extractOutputText(payload);
       const outputModeration = await moderateText(rawReply);
       if (hasUrgentSafetySignal(outputModeration)) {
+        await safelyRelease(assignmentId, studentEmail);
+        reservationHeld = false;
         return json({
           move: "Return to the text",
           safetyFlag: true,
@@ -357,17 +379,28 @@ export default {
 
       const reply = normalizeQuestion(rawReply);
       const selectedMove = cleanString(body?.selectedMove, 40);
+      const successfulQuestions = await finalizeCoachTurn(
+        assignmentId,
+        studentEmail
+      );
+      reservationHeld = false;
 
       return json({
         reply,
         move: MOVE_LABELS[selectedMove] || "Socratic question",
+        usage: {
+          successfulQuestions,
+          limit: PILOT_COACH_LIMIT,
+        },
       });
     } catch (error) {
+      if (reservationHeld) await safelyRelease(assignmentId, studentEmail);
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("ASSIGNMENT_NOT_OPEN")) {
+        return json({ error: "This assignment is no longer open for coaching." }, 409);
+      }
       console.error("EnDepth coach function failed", error);
-      return json(
-        { error: "The live coach could not connect. Please try again." },
-        500
-      );
+      return json({ error: "The live coach could not connect. Please try again." }, 500);
     }
   },
 };
