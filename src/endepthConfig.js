@@ -1,10 +1,14 @@
-export const ASSIGNMENT_STORAGE_KEY = "endepth.assignment.v1";
-const STORAGE_KEY = "endepth-student-prototype-v5";
+export const ASSIGNMENT_STORAGE_KEY = "endepth.assignment.v2";
+const STORAGE_KEY = "endepth-student-pilot-v6";
 export const PILOT_CODE_STORAGE_KEY = "endepth-pilot-access-code";
 
 const DEFAULT_ASSIGNMENT = {
+  assignmentId: "",
+  publicSlug: "",
+  teacherId: "",
   teacherName: "Morgan Towle",
   course: "Minds, Machines, and Morality",
+  section: "Showcase",
   title: "What Counts as Consciousness?",
   date: "Harkness preparation · Showcase demo",
   prompt:
@@ -17,7 +21,10 @@ const DEFAULT_ASSIGNMENT = {
   evidenceRequirement:
     "Ground your thinking in the assigned passage or another specific course text.",
   coachingFocus: "Balanced preparation",
-  maxCoachQuestions: 6,
+  maxCoachQuestions: 4,
+  studentLimit: 17,
+  status: "draft",
+  updatedAt: "",
 };
 
 export const SHOWCASE_ASSIGNMENT = { ...DEFAULT_ASSIGNMENT };
@@ -31,38 +38,49 @@ export const COACHING_FOCUS_OPTIONS = [
   "Prepare an open discussion question",
 ];
 
-export const MAX_COACH_QUESTION_OPTIONS = [4, 6, 8];
+export const MAX_COACH_QUESTION_OPTIONS = [4];
 
 export function normalizeAssignment(value = {}) {
-  const maxCoachQuestions = Number(value.maxCoachQuestions);
+  const candidate = value && typeof value === "object" ? value : {};
   return {
     ...DEFAULT_ASSIGNMENT,
-    ...(value && typeof value === "object" ? value : {}),
-    teacherName: String(value.teacherName ?? DEFAULT_ASSIGNMENT.teacherName).trim(),
-    course: String(value.course ?? DEFAULT_ASSIGNMENT.course).trim(),
-    title: String(value.title ?? DEFAULT_ASSIGNMENT.title).trim(),
-    date: String(value.date ?? DEFAULT_ASSIGNMENT.date).trim(),
-    prompt: String(value.prompt ?? DEFAULT_ASSIGNMENT.prompt).trim(),
-    sourceTitle: String(value.sourceTitle ?? DEFAULT_ASSIGNMENT.sourceTitle).trim(),
-    passage: String(value.passage ?? DEFAULT_ASSIGNMENT.passage).trim(),
-    directions: String(value.directions ?? DEFAULT_ASSIGNMENT.directions).trim(),
+    ...candidate,
+    assignmentId: String(candidate.assignmentId || "").trim(),
+    publicSlug: String(candidate.publicSlug || "").trim(),
+    teacherId: String(candidate.teacherId || "").trim(),
+    teacherName: String(candidate.teacherName ?? DEFAULT_ASSIGNMENT.teacherName).trim(),
+    course: String(candidate.course ?? DEFAULT_ASSIGNMENT.course).trim(),
+    section: String(candidate.section ?? DEFAULT_ASSIGNMENT.section).trim(),
+    title: String(candidate.title ?? DEFAULT_ASSIGNMENT.title).trim(),
+    date: String(candidate.date ?? DEFAULT_ASSIGNMENT.date).trim(),
+    prompt: String(candidate.prompt ?? DEFAULT_ASSIGNMENT.prompt).trim(),
+    sourceTitle: String(candidate.sourceTitle ?? DEFAULT_ASSIGNMENT.sourceTitle).trim(),
+    passage: String(candidate.passage ?? DEFAULT_ASSIGNMENT.passage).trim(),
+    directions: String(candidate.directions ?? DEFAULT_ASSIGNMENT.directions).trim(),
     evidenceRequirement: String(
-      value.evidenceRequirement ?? DEFAULT_ASSIGNMENT.evidenceRequirement
+      candidate.evidenceRequirement ?? DEFAULT_ASSIGNMENT.evidenceRequirement
     ).trim(),
-    coachingFocus: COACHING_FOCUS_OPTIONS.includes(value.coachingFocus)
-      ? value.coachingFocus
+    coachingFocus: COACHING_FOCUS_OPTIONS.includes(candidate.coachingFocus)
+      ? candidate.coachingFocus
       : DEFAULT_ASSIGNMENT.coachingFocus,
-    maxCoachQuestions: MAX_COACH_QUESTION_OPTIONS.includes(maxCoachQuestions)
-      ? maxCoachQuestions
-      : DEFAULT_ASSIGNMENT.maxCoachQuestions,
+    maxCoachQuestions: 4,
+    studentLimit: 17,
+    status: ["draft", "open", "closed"].includes(candidate.status)
+      ? candidate.status
+      : DEFAULT_ASSIGNMENT.status,
+    updatedAt: String(candidate.updatedAt || "").trim(),
   };
 }
 
 export function stableAssignmentKey(assignment) {
   const normalized = normalizeAssignment(assignment);
   return JSON.stringify({
+    assignmentId: normalized.assignmentId,
+    publicSlug: normalized.publicSlug,
+    teacherId: normalized.teacherId,
     teacherName: normalized.teacherName,
     course: normalized.course,
+    section: normalized.section,
     title: normalized.title,
     date: normalized.date,
     prompt: normalized.prompt,
@@ -72,11 +90,26 @@ export function stableAssignmentKey(assignment) {
     evidenceRequirement: normalized.evidenceRequirement,
     coachingFocus: normalized.coachingFocus,
     maxCoachQuestions: normalized.maxCoachQuestions,
+    studentLimit: normalized.studentLimit,
+    updatedAt: normalized.updatedAt,
   });
 }
 
+function shortHash(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
 export function isShowcaseAssignment(assignment) {
-  return stableAssignmentKey(assignment) === stableAssignmentKey(SHOWCASE_ASSIGNMENT);
+  const normalized = normalizeAssignment(assignment);
+  return (
+    !normalized.assignmentId &&
+    stableAssignmentKey(normalized) === stableAssignmentKey(SHOWCASE_ASSIGNMENT)
+  );
 }
 
 export function loadAssignment() {
@@ -167,7 +200,7 @@ export function initialStudentStateFor(assignment) {
 }
 
 export function studentStorageKey(assignment) {
-  return `${STORAGE_KEY}:${stableAssignmentKey(assignment)}`;
+  return `${STORAGE_KEY}:${shortHash(stableAssignmentKey(assignment))}`;
 }
 
 export function loadStudentState(assignment) {
