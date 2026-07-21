@@ -9,15 +9,6 @@ import {
   upsertSubmission,
 } from "./submissions-db.js";
 
-function submissionIdFrom(body) {
-  const supplied = cleanString(body?.submissionId, 160);
-  if (supplied && /^[a-zA-Z0-9._:-]+$/.test(supplied)) return supplied;
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 export default {
   async fetch(request) {
     if (request.method !== "POST") {
@@ -77,7 +68,9 @@ export default {
     try {
       await ensureAtomicCapacityGuard();
       const row = await upsertSubmission({
-        submissionId: submissionIdFrom(body),
+        // The database chooses the existing ID for this assignment/email pair,
+        // or generates a fresh one for a new/corrected email. We intentionally
+        // do not reuse the browser's old submission ID across identities.
         assignmentId,
         firstName,
         lastName,
