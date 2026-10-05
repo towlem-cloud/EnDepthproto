@@ -6,7 +6,11 @@ export async function post(action, body = {}, path = "/api/department") {
     body: JSON.stringify({ action, ...body }),
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Request failed.");
+  if (!response.ok) {
+    const error = new Error(data.error || "Request failed.");
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 export function safeCsv(rows) {

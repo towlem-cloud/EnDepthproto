@@ -51,13 +51,37 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     headless: true,
     args: ["--no-sandbox"],
   });
+  let provider;
   try {
     const context = await browser.newContext();
     const errors = [];
+    const coachRequests = [];
+    let failNextGeneration = false;
+    provider = mock.method(globalThis, "fetch", async (url) => {
+      assert.ok(String(url).startsWith("https://api.openai.com/v1/"));
+      if (String(url).endsWith("/moderations"))
+        return Response.json({ results: [{ flagged: false }] });
+      assert.ok(String(url).endsWith("/responses"));
+      if (failNextGeneration) {
+        failNextGeneration = false;
+        return Response.json(
+          { error: "Synthetic provider failure" },
+          { status: 503 },
+        );
+      }
+      return Response.json({
+        output_text:
+          "Your draft identifies shared responsibility and disagreement but leaves their relationship unexplained. Examine which decisions bring neighbors together and which priorities create tension. What evidence would help you decide whether a shared task strengthens relationships?",
+      });
+    });
     await context.route("https://synthetic.test/**", async (route) => {
       const req = route.request(),
         url = new URL(req.url());
       if (url.pathname.startsWith("/api/")) {
+        if (url.pathname === "/api/department" && req.method() === "POST") {
+          const body = req.postDataJSON();
+          if (body.action === "student-coach") coachRequests.push(body);
+        }
         const handler = api[url.pathname.slice(5)];
         assert.ok(handler, url.pathname);
         const response = await handler.fetch(
@@ -178,6 +202,61 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     await page
       .getByText("Draft saved. This is not a submission.", { exact: true })
       .waitFor();
+    await page.getByLabel("Rubric focus", { exact: true }).selectOption("Analysis");
+    await page.getByLabel("Goal", { exact: true }).fill(
+      "Explain the relationship between shared responsibility and disagreement.",
+    );
+    await page.getByLabel("Exact passage from saved draft", { exact: true }).fill(
+      "Exact passage from saved draft: The fictional garden gives neighbors a shared responsibility.",
+    );
+    await page.getByLabel("What I already tried", { exact: true }).fill(
+      "I identified a shared task and competing priorities.",
+    );
+    await page.getByLabel("My focused question", { exact: true }).fill(
+      "Which causal link needs more explanation?",
+    );
+    const coachResponse = () => page.waitForResponse((response) =>
+      response.url().endsWith("/api/department") &&
+      response.request().postDataJSON()?.action === "student-coach",
+    );
+    let result = coachResponse();
+    await page.getByRole("button", { name: "Request live check", exact: true }).click();
+    assert.equal((await result).status(), 400);
+    await page.getByText("Select an exact passage from the saved draft.", {
+      exact: true,
+    }).waitFor();
+    await page.getByRole("button", { name: "Request live check", exact: true }).waitFor();
+    assert.equal(provider.mock.callCount(), 0);
+
+    const savedPassage =
+      "The fictional garden gives neighbors a shared responsibility, but it also exposes disagreement about priorities.";
+    await page.getByLabel("Exact passage from saved draft", { exact: true }).fill(savedPassage);
+    await page.getByLabel("My focused question", { exact: true }).fill("Which causal link needs evidence?");
+    result = coachResponse();
+    await page.getByRole("button", { name: "Request live check", exact: true }).click();
+    assert.equal((await result).status(), 200);
+    await page.getByText(/1\/4 used/).waitFor();
+    assert.notEqual(coachRequests[1].requestId, coachRequests[0].requestId);
+    assert.equal(coachRequests[1].passage, savedPassage);
+    assert.equal(coachRequests[1].question, "Which causal link needs evidence?");
+
+    failNextGeneration = true;
+    await page.getByLabel("My focused question", { exact: true }).fill(
+      "How could competing priorities limit the garden's effect?",
+    );
+    result = coachResponse();
+    await page.getByRole("button", { name: "Request live check", exact: true }).click();
+    assert.equal((await result).status(), 502);
+    await page.getByRole("button", { name: "Retry the same live check", exact: true }).waitFor();
+    await page.getByText(/1\/4 used/).waitFor();
+    await page.getByLabel("My focused question", { exact: true }).fill(
+      "An edited question must not replace an uncertain retry payload.",
+    );
+    result = coachResponse();
+    await page.getByRole("button", { name: "Retry the same live check", exact: true }).click();
+    assert.equal((await result).status(), 200);
+    await page.getByText(/2\/4 used/).waitFor();
+    assert.deepEqual(coachRequests[3], coachRequests[2]);
     await page
       .getByLabel("Working / final draft", { exact: true })
       .fill(
@@ -210,7 +289,7 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     assert.equal(
       (await sql`SELECT successful_checks FROM enscribe_students`)[0]
         .successful_checks,
-      0,
+      2,
     );
     assert.ok(
       await page.evaluate(
@@ -272,6 +351,7 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();
+    provider?.mock.restore();
     await db.close();
   }
 });

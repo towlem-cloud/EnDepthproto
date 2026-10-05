@@ -89,7 +89,15 @@ export default function EnScribeStudent({ studentId }) {
         question,
       };
       setPending(req);
-      const result = await post("student-coach", req);
+      let result;
+      try {
+        result = await post("student-coach", req);
+      } catch (error) {
+        // Input validation rejected this attempt before reservation. Let corrected fields create
+        // a new request; uncertain failures retain the exact retry payload.
+        if (error.status === 400) setPending(null);
+        throw error;
+      }
       setNotice(
         result.withheld
           ? result.message
