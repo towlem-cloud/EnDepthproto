@@ -20,7 +20,7 @@ try {
   for(const [label,value] of Object.entries({Course:'Synthetic browser test',Section:'Period 1',Title:'Browser verification writing','Assignment prompt':'Analyze how the gate creates tension.','Teacher-provided rubric':'Explain the reasoning behind your interpretation.'}))await page.getByLabel(label,{exact:true}).fill(value);
   await page.getByLabel('Status',{exact:true}).selectOption('open');
   await page.getByRole('button',{name:'Save assignment',exact:true}).click();
-  await page.getByText('Assignment saved. Open it before sharing the link.',{exact:true}).waitFor();
+  await page.getByText('Assignment saved and open to students.',{exact:true}).waitFor();
   await page.screenshot({path:'test-results/teacher-desktop.png',fullPage:true});
   const link=await page.locator('a[href^="/?writing="]').getAttribute('href');
   const access=page.locator('form').filter({has:page.getByRole('heading',{name:'Private student access'})});

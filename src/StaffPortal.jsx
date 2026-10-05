@@ -352,9 +352,7 @@ export default function StaffPortal() {
           </div>
           <h1>Build assignments once. Share one student link.</h1>
           <p>
-            Assignment changes, teacher codes, student links, and records now live
-            in the database—routine pilot updates no longer require a code change or
-            Vercel redeployment.
+            Create assignments for your classes, share student access privately, and review each student’s work and thinking.
           </p>
         </div>
         <div className="staff-banner-actions">

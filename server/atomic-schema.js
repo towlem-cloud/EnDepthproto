@@ -37,7 +37,7 @@ export async function migrateAtomic(sql) {
         IF NOT EXISTS(SELECT 1 FROM enscribe_drafts WHERE student_id=s AND status='draft') THEN RETURN 'closed'; END IF;
       ELSE
         SELECT status='open' INTO allowed FROM endepth_assignments WHERE assignment_id=actor.assignment_id;
-        SELECT COALESCE(successful_count,0)+COALESCE(in_flight_count,0) INTO prior FROM endepth_coach_usage WHERE assignment_id=actor.assignment_id AND student_email=legacy_key;
+        SELECT COALESCE(successful_count,0)+CASE WHEN updated_at>NOW()-INTERVAL '5 minutes' THEN COALESCE(in_flight_count,0) ELSE 0 END INTO prior FROM endepth_coach_usage WHERE assignment_id=actor.assignment_id AND student_email=legacy_key;
       END IF;
       IF allowed IS DISTINCT FROM TRUE THEN RETURN 'closed'; END IF;
       SELECT * INTO old FROM department_coach_requests WHERE student_id=s AND request_id=r;

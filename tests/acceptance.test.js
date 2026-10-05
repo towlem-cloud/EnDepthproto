@@ -146,6 +146,14 @@ test('EnDepth coaching uses authenticated student identity, preserves historic q
  assert.equal((await send(coach,body)).status,409);
  assert.equal((await send(submissions,{assignmentId:ad.assignmentId,accessCode:s.code,work:{initialResponse:'Original',evidence:'Evidence',claim:'Claim',complication:'Complication',openQuestion:'Question?'}})).status,409);
 });
+test('expired legacy in-flight reservations do not permanently consume coaching allowance',async()=>{
+ const a=(await send(assignments,{action:'save',assignment:depth},teacherA.cookie)).data.assignment;
+ const s=await issue('endepth',a.assignmentId,teacherA.cookie,'legacy-lease@example.invalid');
+ await sql`INSERT INTO endepth_coach_usage(assignment_id,student_email,successful_count,in_flight_count,updated_at) VALUES(${a.assignmentId},${digest(a.assignmentId+':legacy-lease@example.invalid')},3,1,NOW()-INTERVAL '10 minutes')`;
+ const body={assignmentId:a.assignmentId,accessCode:s.code,requestId:'expired-legacy-0001',messages:[{role:'student',text:'Where does my reasoning need attention?'}]};
+ assert.equal((await send(coach,body)).status,200);
+ assert.equal((await send(coach,{...body,requestId:'expired-legacy-0002'})).status,409);
+});
 test('17-student capacity survives concurrent issuance and student code rotation preserves quota',async()=>{
  const a=(await send(assignments,{action:'save',assignment:depth},teacherA.cookie)).data.assignment;
  const results=await Promise.all(Array.from({length:19},(_,i)=>send(department,{action:'issue-student',module:'endepth',assignmentId:a.assignmentId,email:`capacity${i}@example.invalid`,firstName:'Synthetic',lastName:'Student'},teacherA.cookie)));

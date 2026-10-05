@@ -51,3 +51,11 @@ Production activation and a real bounded AI check must be reported separately fr
 ## Rollback
 
 Do not drop or truncate added tables. Prefer a forward fix with the secured authentication retained. A blanket rollback to the old main restores the insecure environment-code recovery path and shared student-code authentication and cannot verify newly scrypt-hashed teacher codes; it is therefore NOT a safe authentication rollback. If a UI-only issue occurs, keep the new backend and disable the new writing navigation while preserving stored work. If access is affected, restrict the deployment through Vercel's existing protection and repair on this same branch before promoting. Export/review data only through authenticated owner/admin endpoints. Never restore old teacher hashes to regain access; use authenticated administrator code rotation.
+
+## Current verification and access boundary
+
+Implementation is published in the single department-enscribe-endepth branch and PR #8. Automated backend tests, desktop/mobile browser workflow, production build and diff checks have run successfully in GitHub Actions. Vercel previews build from the remote commit; the deployed department shell and API method rejection were fetched successfully, and an isolated-preview database lookup returned the expected missing-assignment response.
+
+Authenticated preview walkthrough and a bounded actual OpenAI exchange are not yet verified: the cloud browser is at Vercel sign-in, and Vercel keeps the existing administrator credential non-readable. No production teacher activation, credential rotation, data migration or merge was performed. The production statuses of the seven teachers have not been inspected, so they must not be reported as active. New unmatched accounts will be awaiting activation when production migration runs. The test suite activates all seven synthetic roster accounts, not their live accounts.
+
+Remaining release gate: authenticate to the protected preview using the existing administrator credential, verify both modules against preview data and a bounded live AI check, then approve production release. After release, use Department accounts to inspect the real roster and privately issue codes only where needed. Do not reset existing codes merely to match the synthetic test fixture.
