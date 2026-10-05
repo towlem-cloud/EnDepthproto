@@ -4,12 +4,12 @@ import { readFile,mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const secrets=[];
 const server=spawn(process.execPath,['scripts/dev.mjs','--synthetic'],{stdio:['ignore','pipe','pipe']});
-let browser;
+let browser, page;
 try {
   await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Local server startup timed out')),30000);server.stdout.on('data',d=>{if(String(d).includes('Local full-stack server')){clearTimeout(timeout);resolve();}});server.on('exit',()=>reject(new Error('Local server exited')));});
   const {adminCode}=JSON.parse(await readFile('test-results/ui-credentials.json','utf8'));secrets.push(adminCode);
   browser=await chromium.launch({headless:true});
-  const page=await browser.newPage({viewport:{width:1440,height:1000}}), errors=[];
+  page=await browser.newPage({viewport:{width:1440,height:1000}}); const errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://localhost:5173/?department=1');
   await page.getByLabel('Teacher or admin code').fill(adminCode);
@@ -53,7 +53,7 @@ try {
   await page.getByRole('button',{name:'Reopen for revision'}).click();
   await page.getByText('Fictional Writer · draft',{exact:true}).waitFor();
   student.once('dialog',d=>d.accept());
-  await student.getByRole('button',{name:'Reload saved version'}).click();
+  await Promise.all([student.waitForResponse(r=>r.url().includes('/api/department') && r.request().postDataJSON().action==='student-read'),student.getByRole('button',{name:'Reload saved version'}).click()]);
   await student.getByRole('button',{name:'Save revision',exact:true}).waitFor();
   assert.equal(await student.getByLabel('Working draft',{exact:true}).isDisabled(),false);
   await page.getByRole('button',{name:'Try both tools',exact:true}).click();
@@ -67,5 +67,6 @@ try {
   assert.deepEqual(errors,[]);
   console.log('PASS: desktop teacher creation/import access; mobile original/revision/submit/reopen; EnDepth sample link; no React errors; no mobile overflow. Live AI was not called.');
 } catch(e) {
+  if(page) await page.screenshot({path:'test-results/failure-redacted.png',fullPage:true,mask:[page.locator('code'),page.locator('input[type=password]')]}).catch(()=>{});
   let message=String(e.stack || e);for(const secret of secrets)message=message.replaceAll(secret,'[redacted synthetic credential]');console.error(message);process.exitCode=1;
 } finally {await browser?.close();server.kill('SIGTERM');}
