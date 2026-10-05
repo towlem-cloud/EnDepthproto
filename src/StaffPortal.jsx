@@ -34,7 +34,7 @@ function csvCell(value) {
   return `"${String(value ?? "").replace(/^[\s]*[=+@-]/, "'$&").replace(/"/g, '""')}"`;
 }
 
-export default function StaffPortal() {
+export default function StaffPortal({ onLock } = {}) {
   const [code, setCode] = useState("");
   const [draftCode, setDraftCode] = useState("");
   const [staff, setStaff] = useState(null);
@@ -186,6 +186,7 @@ export default function StaffPortal() {
     setTeacherDraft(null);
     setError("");
     setNotice("");
+    onLock?.();
   }
 
   function startAssignment(existing = null) {

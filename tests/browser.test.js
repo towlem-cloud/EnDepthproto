@@ -230,6 +230,8 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
       .first()
       .waitFor();
     await page.goto("https://synthetic.test/?tool=department");
+    await page.getByRole('button',{name:'Students / import / access links',exact:true}).click();
+    await page.getByText(/fictional@example.invalid/).waitFor();
     await page
       .getByRole("button", { name: "EnDepth Teacher Desk", exact: true })
       .click();
@@ -239,6 +241,34 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
         exact: true,
       })
       .waitFor();
+    const logoutResponse=page.waitForResponse(r=>r.url().endsWith('/api/staff-auth')&&r.request().postData()?.includes('logout'));
+    await page
+      .getByRole("button", { name: "Lock portal", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Approved staff sign-in", exact: true })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "EnScribe Writing Studio", exact: true })
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page
+        .getByRole("button", { name: "EnDepth Teacher Desk", exact: true })
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page
+        .getByText("fictional@example.invalid", { exact: true })
+        .count(),
+      0,
+    );
+    assert.equal((await logoutResponse).status(),200);
+    assert.equal((await sql`SELECT count(*)::int AS n FROM department_sessions`)[0].n,0);
+    await page.reload();await page.getByRole('heading',{name:'Approved staff sign-in',exact:true}).waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

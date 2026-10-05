@@ -31,6 +31,19 @@ export default function DepartmentPortal() {
     [oneTime, setOneTime] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  function clearStaff() {
+    setStaff(null);
+    setOneTime("");
+    setStudents([]);
+    setAssignments([]);
+    setTeachers([]);
+    setDraft(null);
+    setSelected(null);
+    setModule("desk");
+    setEmail("");
+    setCode("");
+    setInvite({ firstName: "", lastName: "", email: "", original: "" });
+  }
   async function run(fn) {
     setError("");
     setBusy(true);
@@ -143,21 +156,7 @@ export default function DepartmentPortal() {
               onClick={() =>
                 run(async () => {
                   await post("logout", {}, "/api/staff-auth");
-                  setStaff(null);
-                  setOneTime("");
-                  setStudents([]);
-                  setAssignments([]);
-                  setTeachers([]);
-                  setDraft(null);
-                  setSelected(null);
-                  setModule("desk");
-                  setEmail("");
-                  setInvite({
-                    firstName: "",
-                    lastName: "",
-                    email: "",
-                    original: "",
-                  });
+                  clearStaff();
                 })
               }
             >
@@ -170,7 +169,7 @@ export default function DepartmentPortal() {
                 EnDepth assignments and records retain their existing student
                 URLs.
               </p>
-              <StaffPortal />
+              <StaffPortal onLock={clearStaff} />
             </>
           ) : (
             <>
@@ -555,7 +554,9 @@ export default function DepartmentPortal() {
                     {t.email} ·{" "}
                     {t.active
                       ? t.activation_state
-                      : t.activation_state === "awaiting activation" ? "awaiting activation" : "disabled"}
+                      : t.activation_state === "awaiting activation"
+                        ? "awaiting activation"
+                        : "disabled"}
                   </p>
                   <div className="toolbar">
                     <button

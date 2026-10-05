@@ -28,19 +28,19 @@ const {
 } = await import("../lib/endepth-db.js");
 const auth = (await import("../api/staff-auth.js")).default;
 const endpoint = (await import("../api/department.js")).default;
-const request = (body, cookie = "", ip="203.0.113.10") =>
+const request = (body, cookie = "", ip = "203.0.113.10") =>
   new Request("https://synthetic.test/api/department", {
     method: "POST",
     headers: {
       origin: "https://synthetic.test",
       "content-type": "application/json",
       cookie,
-      "x-vercel-forwarded-for":ip,
+      "x-vercel-forwarded-for": ip,
     },
     body: JSON.stringify(body),
   });
-const call = async (handler, body, cookie = "", ip="203.0.113.10") => {
-  const response = await handler.fetch(request(body, cookie,ip));
+const call = async (handler, body, cookie = "", ip = "203.0.113.10") => {
+  const response = await handler.fetch(request(body, cookie, ip));
   return {
     status: response.status,
     data: await response.json(),
@@ -106,7 +106,7 @@ test("shared sessions preserve legacy IDs, records, credentials and links; appro
     accounts.filter((r) => r.activation_state === "awaiting activation").length,
     6,
   );
-  for (const [index,row] of accounts.entries()) {
+  for (const [index, row] of accounts.entries()) {
     const code =
       row.teacher_id === legacy.staff.teacherId
         ? process.env.ENDEPTH_SECOND_TEACHER_CODE
@@ -116,14 +116,19 @@ test("shared sessions preserve legacy IDs, records, credentials and links; appro
               teacherId: row.teacher_id,
             })
           ).newCode;
-    const verified = await call(auth, { code, email: row.email },"",`203.0.113.${100+index}`);
+    const verified = await call(
+      auth,
+      { code, email: row.email },
+      "",
+      `203.0.113.${100 + index}`,
+    );
     assert.equal(verified.status, 200);
     const depthHandler = (await import("../api/assignments.js")).default;
     assert.equal(
       (await call(depthHandler, { action: "list" }, verified.cookie)).status,
       200,
     );
-    const login = {staff:verified.data.staff,cookie:verified.cookie};
+    const login = { staff: verified.data.staff, cookie: verified.cookie };
     const cookie = verified.cookie;
     assert.equal(
       (await call(endpoint, { action: "writing-list" }, cookie)).status,
@@ -914,4 +919,27 @@ test("CSV export neutralizes spreadsheet formulas and preserves quoting", async 
   assert.match(result, /"'@function/);
   assert.match(result, /ordinary ""quoted"" text/);
   assert.match(result, /two\nlines/);
+});
+test("migration CLI rejects false approval flags before opening a database", async () => {
+  const { spawnSync } = await import("node:child_process");
+  for (const value of ["0", "false", "true", "yes", ""]) {
+    const result = spawnSync(
+      process.execPath,
+      ["scripts/migrate-department.mjs"],
+      {
+        cwd: process.cwd(),
+        env: {
+          DEPARTMENT_MIGRATION_APPROVED: value,
+          DATABASE_URL: "postgresql://localhost:1/not-to-be-opened",
+        },
+        encoding: "utf8",
+      },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(
+      result.stderr,
+      /Set DEPARTMENT_MIGRATION_APPROVED=1 only after review/,
+    );
+    assert.equal(result.stderr.includes("ECONNREFUSED"), false);
+  }
 });
