@@ -2,7 +2,7 @@ import {
   databaseIsConfigured,
   getPublicAssignmentBySlug,
   json,
-} from "./submissions-db.js";
+} from "../lib/endepth-db.js";
 
 export default {
   async fetch(request) {
@@ -27,7 +27,7 @@ export default {
       }
       return json({ assignment });
     } catch (error) {
-      console.error("EnDepth public assignment load failed", error);
+      console.error("EnDepth public assignment load failed");
       return json({ error: "The assignment could not be loaded." }, 500);
     }
   },

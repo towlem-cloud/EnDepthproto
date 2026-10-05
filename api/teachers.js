@@ -1,10 +1,9 @@
+import { authenticateRequest } from "../lib/department-security.js";
 import {
-  authenticateStaffCode,
   databaseIsConfigured,
   json,
   listTeachers,
-  saveTeacherAccount,
-} from "./submissions-db.js";
+} from "../lib/endepth-db.js";
 
 function errorMessage(error) {
   const code = error instanceof Error ? error.message : "";
@@ -35,7 +34,7 @@ export default {
     }
 
     try {
-      const staff = await authenticateStaffCode(body.code);
+      const staff = await authenticateRequest(request);
       if (!staff) return json({ error: "The staff code was not accepted." }, 401);
       if (staff.role !== "admin") {
         return json({ error: "Admin access is required to manage teachers." }, 403);
@@ -44,13 +43,10 @@ export default {
       if (body.action === "list") {
         return json({ teachers: await listTeachers() });
       }
-      if (body.action === "save") {
-        const teacher = await saveTeacherAccount(body.teacher || {});
-        return json({ teacher });
-      }
       return json({ error: "Choose a supported teacher action." }, 400);
     } catch (error) {
-      console.error("EnDepth teacher management failed", error);
+      if (error.status) return json({ error: error.message }, error.status);
+      console.error("EnDepth teacher management failed");
       return json({ error: errorMessage(error) }, 400);
     }
   },

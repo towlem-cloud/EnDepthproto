@@ -1,4 +1,5 @@
-import { ensureAtomicCapacityGuard } from "./capacity-guard.js";
+import { ownsDepthSandbox, depthTestIdentity } from "../lib/depth-sandbox.js";
+import { ensureAtomicCapacityGuard } from "../lib/capacity-guard.js";
 import {
   cleanMessages,
   cleanString,
@@ -7,7 +8,7 @@ import {
   json,
   normalizeEmail,
   upsertSubmission,
-} from "./submissions-db.js";
+} from "../lib/endepth-db.js";
 
 export default {
   async fetch(request) {
@@ -22,7 +23,7 @@ export default {
     }
 
     const requiredCode = process.env.ENDEPTH_ACCESS_CODE;
-    if (!requiredCode) {
+    if (!requiredCode && !request.headers.get("cookie")) {
       return json({ error: "The student pilot code has not been configured." }, 503);
     }
 
@@ -33,7 +34,7 @@ export default {
       return json({ error: "The submission request was invalid." }, 400);
     }
 
-    if (cleanString(body?.accessCode, 200) !== requiredCode) {
+    if ((!requiredCode || cleanString(body?.accessCode, 200) !== requiredCode) && !await ownsDepthSandbox(request, body?.assignmentId || body?.assignment?.assignmentId)) {
       return json({ error: "The class pilot code was not accepted." }, 401);
     }
 
@@ -66,6 +67,7 @@ export default {
     }
 
     try {
+      await depthTestIdentity(request, assignmentId);
       await ensureAtomicCapacityGuard();
       const row = await upsertSubmission({
         // The database chooses the existing ID for this assignment/email pair,
@@ -89,6 +91,7 @@ export default {
         submittedAt: row.updated_at,
       });
     } catch (error) {
+      if(error.status) return json({error:error.message},error.status);
       const code = error instanceof Error ? error.message : "";
       if (code.includes("ASSIGNMENT_CAPACITY_REACHED")) {
         return json(
@@ -99,7 +102,7 @@ export default {
       if (code.includes("ASSIGNMENT_NOT_OPEN")) {
         return json({ error: "This assignment is no longer open for submissions." }, 409);
       }
-      console.error("EnDepth submission failed", error);
+      console.error("EnDepth submission failed");
       return json(
         { error: "Your preparation could not be saved to the classroom database." },
         500

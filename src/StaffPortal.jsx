@@ -31,15 +31,12 @@ function formatDate(value) {
 }
 
 function csvCell(value) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+  return `"${String(value ?? "").replace(/^[\s]*[=+@-]/, "'$&").replace(/"/g, '""')}"`;
 }
 
 export default function StaffPortal() {
-  const [code, setCode] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return window.sessionStorage.getItem(STAFF_CODE_KEY) || "";
-  });
-  const [draftCode, setDraftCode] = useState(code);
+  const [code, setCode] = useState("");
+  const [draftCode, setDraftCode] = useState("");
   const [staff, setStaff] = useState(null);
   const [tab, setTab] = useState("assignments");
   const [assignments, setAssignments] = useState([]);
@@ -58,7 +55,7 @@ export default function StaffPortal() {
     const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...body, code: activeCode }),
+      body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -79,9 +76,9 @@ export default function StaffPortal() {
     setError("");
     try {
       const data = await post("/api/staff-auth", { code: cleanCode }, cleanCode);
-      window.sessionStorage.setItem(STAFF_CODE_KEY, cleanCode);
-      setCode(cleanCode);
-      setDraftCode(cleanCode);
+      window.sessionStorage.removeItem(STAFF_CODE_KEY);
+      setCode("");
+      setDraftCode("");
       setStaff(data.staff);
       setTab("assignments");
       await loadPortalData(cleanCode, data.staff);
@@ -148,9 +145,8 @@ export default function StaffPortal() {
   }
 
   useEffect(() => {
-    if (code && !staff) authenticate(code);
-    // Restore one authenticated browser session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    window.sessionStorage.removeItem(STAFF_CODE_KEY);
+    post("/api/staff-auth", {action:"session"}).then(async data=>{setStaff(data.staff);await loadPortalData("",data.staff);}).catch(()=>{});
   }, []);
 
   const selectedAssignment =
@@ -178,6 +174,7 @@ export default function StaffPortal() {
     null;
 
   function lockPortal() {
+    post("/api/staff-auth", {action:"logout"}).catch(()=>{});
     window.sessionStorage.removeItem(STAFF_CODE_KEY);
     setCode("");
     setDraftCode("");
@@ -219,22 +216,6 @@ export default function StaffPortal() {
     } catch (saveError) {
       if (saveError.status === 401) lockPortal();
       setError(saveError.message || "The assignment could not be saved.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function saveTeacher() {
-    setLoading(true);
-    setError("");
-    try {
-      await post("/api/teachers", { action: "save", teacher: teacherDraft });
-      const teacherData = await post("/api/teachers", { action: "list" });
-      setTeachers(teacherData.teachers || []);
-      setTeacherDraft(null);
-      setNotice("Teacher account saved. New codes take effect immediately.");
-    } catch (saveError) {
-      setError(saveError.message || "The teacher account could not be saved.");
     } finally {
       setLoading(false);
     }
@@ -553,29 +534,7 @@ export default function StaffPortal() {
         </section>
       ) : null}
 
-      {tab === "teachers" && staff.role === "admin" ? (
-        <section className="portal-section">
-          <div className="portal-section-heading"><div><div className="card-kicker">Admin controls</div><h2>Teacher accounts and code rotation</h2></div><button className="primary-button" type="button" onClick={() => setTeacherDraft({ teacherId: "", displayName: "", email: "", slug: "", newCode: "", active: true })}>Add teacher</button></div>
-          <div className="teacher-account-grid">
-            <div className="content-card teacher-account-list">
-              {teachers.map((teacher) => <button className="teacher-account-row" type="button" key={teacher.teacherId} onClick={() => setTeacherDraft({ ...teacher, newCode: "" })}><div><strong>{teacher.displayName}</strong><span>{teacher.email || "No email added"}</span></div><Pill tone={teacher.active ? "green" : "neutral"}>{teacher.active ? "Active" : "Inactive"}</Pill></button>)}
-            </div>
-            <div className="content-card teacher-account-editor">
-              {teacherDraft ? (
-                <>
-                  <div className="card-kicker">{teacherDraft.teacherId ? "Edit teacher" : "New teacher"}</div><h3>{teacherDraft.displayName || "Teacher account"}</h3>
-                  <label><span>Display name</span><input value={teacherDraft.displayName} onChange={(event) => setTeacherDraft((current) => ({ ...current, displayName: event.target.value }))} /></label>
-                  <label><span>Teacher email</span><input type="email" value={teacherDraft.email} onChange={(event) => setTeacherDraft((current) => ({ ...current, email: event.target.value }))} /></label>
-                  <label><span>Account slug</span><input value={teacherDraft.slug} onChange={(event) => setTeacherDraft((current) => ({ ...current, slug: event.target.value }))} /></label>
-                  <label><span>{teacherDraft.teacherId ? "New code (leave blank to keep current)" : "Teacher code"}</span><input type="password" value={teacherDraft.newCode} onChange={(event) => setTeacherDraft((current) => ({ ...current, newCode: event.target.value }))} /></label>
-                  <label className="account-active-toggle"><input type="checkbox" checked={teacherDraft.active !== false} onChange={(event) => setTeacherDraft((current) => ({ ...current, active: event.target.checked }))} /><span>Active teacher account</span></label>
-                  <button className="primary-button" type="button" onClick={saveTeacher} disabled={loading}>Save teacher account</button>
-                </>
-              ) : <div className="empty-detail"><Icon name="users" size={30} /><h3>Select a teacher</h3><p>Rename Teacher 2, add their email, or rotate a teacher code without redeploying EnDepth.</p></div>}
-            </div>
-          </div>
-        </section>
-      ) : null}
+      {tab === "teachers" && staff.role === "admin" ? <div className="content-card"><p>Manage approved accounts, generate individual credentials, and disable access in the Department portal.</p><a href="/?tool=department">Department account management</a></div> : null}
     </main>
   );
 }

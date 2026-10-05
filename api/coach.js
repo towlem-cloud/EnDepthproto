@@ -1,9 +1,6 @@
-import {
-  finalizeCoachTurn,
-  releaseCoachTurn,
-  reserveCoachTurn,
-} from "./coach-usage.js";
-import { getAssignmentById } from "./submissions-db.js";
+import { ownsDepthSandbox, depthTestIdentity } from "../lib/depth-sandbox.js";
+import { reserveDepth, finishDepth } from "../lib/depth-coach-requests.js";
+import { getAssignmentById } from "../lib/endepth-db.js";
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const MODERATION_MODEL =
@@ -157,7 +154,7 @@ function hasUrgentSafetySignal(result) {
     categories["sexual/minors"] ||
       categories["self-harm/intent"] ||
       categories["self-harm/instructions"] ||
-      categories["illicit/violent"]
+      categories["illicit/violent"],
   );
 }
 
@@ -169,16 +166,28 @@ async function moderateText(input) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ model: MODERATION_MODEL, input }),
+    signal: AbortSignal.timeout(45000),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     console.error("OpenAI moderation error", {
       status: response.status,
-      error: payload?.error?.message || payload,
     });
-    return null;
+    throw Object.assign(
+      new Error("The safety check could not complete. Try again."),
+      { status: 502 },
+    );
   }
-  return Array.isArray(payload?.results) ? payload.results[0] : null;
+  if (
+    !Array.isArray(payload?.results) ||
+    !payload.results.length ||
+    typeof payload.results[0].flagged !== "boolean"
+  )
+    throw Object.assign(
+      new Error("The safety check returned no usable result."),
+      { status: 502 },
+    );
+  return payload.results[0];
 }
 
 function buildContext({
@@ -189,6 +198,9 @@ function buildContext({
   significance,
   messages,
 }) {
+  selectedMove = Object.hasOwn(MOVE_DIRECTIONS, selectedMove)
+    ? selectedMove
+    : "clarify";
   const safeAssignment = {
     course: cleanString(assignment?.course, 120),
     title: cleanString(assignment?.title, 240),
@@ -248,11 +260,11 @@ Respond to the state of the student's reasoning, explain what needs intellectual
 `;
 }
 
-async function safelyRelease(assignmentId, studentCoachKey) {
+async function safelyRelease(assignmentId, studentCoachKey, reservation) {
   try {
-    await releaseCoachTurn(assignmentId, studentCoachKey);
+    await finishDepth(assignmentId, studentCoachKey, reservation);
   } catch (error) {
-    console.error("EnDepth coach reservation release failed", error);
+    console.error("EnDepth coach reservation release failed");
   }
 }
 
@@ -262,11 +274,17 @@ export default {
       return json({ error: "Use POST for this endpoint." }, 405);
     }
     if (!process.env.OPENAI_API_KEY) {
-      return json({ error: "The live coach has not been connected correctly yet." }, 503);
+      return json(
+        { error: "The live coach has not been connected correctly yet." },
+        503,
+      );
     }
     const requiredCode = process.env.ENDEPTH_ACCESS_CODE;
-    if (!requiredCode) {
-      return json({ error: "The pilot access code has not been configured yet." }, 503);
+    if (!requiredCode && !request.headers.get("cookie")) {
+      return json(
+        { error: "The pilot access code has not been configured yet." },
+        503,
+      );
     }
 
     let body;
@@ -275,22 +293,41 @@ export default {
     } catch {
       return json({ error: "The coach received an invalid request." }, 400);
     }
-    if (cleanString(body?.accessCode, 200) !== requiredCode) {
+    if (
+      (!requiredCode || cleanString(body?.accessCode, 200) !== requiredCode) &&
+      !(await ownsDepthSandbox(
+        request,
+        body?.assignmentId || body?.assignment?.assignmentId,
+      ))
+    ) {
       return json({ error: "The pilot access code was not accepted." }, 401);
     }
 
     const assignmentId = cleanString(
       body?.assignmentId || body?.assignment?.assignmentId,
-      100
+      100,
     );
-    const studentCoachKey = cleanString(body?.studentCoachKey, 64).toLowerCase();
+    let studentCoachKey = cleanString(body?.studentCoachKey, 64).toLowerCase();
+    try {
+      studentCoachKey =
+        (await depthTestIdentity(request, assignmentId)) || studentCoachKey;
+    } catch (error) {
+      return json(
+        {
+          error: error.status
+            ? error.message
+            : "Assignment access unavailable.",
+        },
+        error.status || 503,
+      );
+    }
     if (!assignmentId || !/^[a-f0-9]{64}$/.test(studentCoachKey)) {
       return json(
         {
           error:
             "Enter your student email and use the assignment link your teacher posted before opening the live coach.",
         },
-        400
+        400,
       );
     }
 
@@ -306,19 +343,45 @@ export default {
     try {
       assignment = await getAssignmentById(assignmentId);
     } catch (error) {
-      console.error("EnDepth assignment lookup failed", error);
+      console.error("EnDepth assignment lookup failed");
       return json({ error: "The assignment could not be verified." }, 500);
     }
     if (!assignment || assignment.status !== "open") {
-      return json({ error: "This assignment is no longer open for coaching." }, 409);
+      return json(
+        { error: "This assignment is no longer open for coaching." },
+        409,
+      );
     }
 
     const context = buildContext({ ...body, assignment });
     let reservationHeld = false;
+    let reservation;
 
     try {
+      reservation = await reserveDepth(
+        request,
+        assignmentId,
+        studentCoachKey,
+        body,
+      );
+      if (reservation.result === "cached") return json(reservation.cached);
+      if (reservation.result !== "reserved")
+        return json(
+          {
+            error:
+              reservation.result === "pending"
+                ? "This check is already in progress. Retry the same request."
+                : "Four successful coaching exchanges completed.",
+            limitReached: reservation.result === "limit",
+            usage: { successfulQuestions: reservation.successful, limit: 4 },
+          },
+          409,
+        );
+      reservationHeld = true;
       const inputModeration = await moderateText(context);
       if (hasUrgentSafetySignal(inputModeration)) {
+        await safelyRelease(assignmentId, studentCoachKey, reservation);
+        reservationHeld = false;
         return json({
           move: "Safety check",
           safetyFlag: true,
@@ -327,51 +390,40 @@ export default {
         });
       }
 
-      const reservation = await reserveCoachTurn(assignmentId, studentCoachKey);
-      if (!reservation.reserved) {
-        return json(
-          {
-            error:
-              "You have completed the four live coaching interactions for this assignment. Finish your Harkness Preparation Card.",
-            limitReached: true,
-            usage: {
-              successfulQuestions: reservation.successfulCount,
-              limit: PILOT_COACH_LIMIT,
-            },
+      const openAIResponse = await fetch(
+        "https://api.openai.com/v1/responses",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
           },
-          409
-        );
-      }
-      reservationHeld = true;
-
-      const openAIResponse = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
+          signal: AbortSignal.timeout(45000),
+          body: JSON.stringify({
+            model: MODEL,
+            store: false,
+            reasoning: { effort: "none" },
+            max_output_tokens: 260,
+            instructions: SYSTEM_PROMPT,
+            input: context,
+          }),
         },
-        body: JSON.stringify({
-          model: MODEL,
-          store: false,
-          reasoning: { effort: "none" },
-          max_output_tokens: 260,
-          instructions: SYSTEM_PROMPT,
-          input: context,
-        }),
-      });
+      );
       const payload = await openAIResponse.json().catch(() => ({}));
 
       if (!openAIResponse.ok) {
-        await safelyRelease(assignmentId, studentCoachKey);
+        await safelyRelease(assignmentId, studentCoachKey, reservation);
         reservationHeld = false;
         console.error("OpenAI response error", {
           status: openAIResponse.status,
-          error: payload?.error?.message || payload,
         });
         if (openAIResponse.status === 401) {
           return json(
-            { error: "The OpenAI key was rejected. Check the key saved in Vercel." },
-            502
+            {
+              error:
+                "The OpenAI key was rejected. Check the key saved in Vercel.",
+            },
+            502,
           );
         }
         if (openAIResponse.status === 429) {
@@ -380,16 +432,19 @@ export default {
               error:
                 "The OpenAI account has reached a billing or rate limit. Check API billing and try again.",
             },
-            503
+            503,
           );
         }
-        return json({ error: "The live coach could not respond. Please try again." }, 502);
+        return json(
+          { error: "The live coach could not respond. Please try again." },
+          502,
+        );
       }
 
       const rawReply = extractOutputText(payload);
       const outputModeration = await moderateText(rawReply);
       if (hasUrgentSafetySignal(outputModeration)) {
-        await safelyRelease(assignmentId, studentCoachKey);
+        await safelyRelease(assignmentId, studentCoachKey, reservation);
         reservationHeld = false;
         return json({
           move: "Return to the text",
@@ -401,9 +456,15 @@ export default {
 
       const reply = normalizeCoachReply(rawReply);
       const selectedMove = cleanString(body?.selectedMove, 40);
-      const successfulQuestions = await finalizeCoachTurn(
+      const result = {
+        reply,
+        move: MOVE_LABELS[selectedMove] || "Socratic coaching",
+      };
+      const successfulQuestions = await finishDepth(
         assignmentId,
-        studentCoachKey
+        studentCoachKey,
+        reservation,
+        result,
       );
       reservationHeld = false;
 
@@ -416,13 +477,21 @@ export default {
         },
       });
     } catch (error) {
-      if (reservationHeld) await safelyRelease(assignmentId, studentCoachKey);
+      if (reservationHeld)
+        await safelyRelease(assignmentId, studentCoachKey, reservation);
+      if (error.status) return json({ error: error.message }, error.status);
       const message = error instanceof Error ? error.message : "";
       if (message.includes("ASSIGNMENT_NOT_OPEN")) {
-        return json({ error: "This assignment is no longer open for coaching." }, 409);
+        return json(
+          { error: "This assignment is no longer open for coaching." },
+          409,
+        );
       }
-      console.error("EnDepth coach function failed", error);
-      return json({ error: "The live coach could not connect. Please try again." }, 500);
+      console.error("EnDepth coach function failed");
+      return json(
+        { error: "The live coach could not connect. Please try again." },
+        500,
+      );
     }
   },
 };

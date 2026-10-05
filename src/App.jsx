@@ -1,3 +1,6 @@
+import DepartmentPortal from "./DepartmentPortal.jsx";
+import EnScribeStudent from "./EnScribeStudent.jsx";
+import "./department.css";
 import React, { useMemo, useState } from "react";
 import "./styles.css";
 import "./showcase.css";
@@ -34,7 +37,7 @@ function PilotHeader({ view, setView, onReset }) {
           ))}
         </nav>
         <div className="topbar-actions">
-          <Pill tone="orange">Two-teacher pilot</Pill>
+          <a href="/?tool=department">Department tools</a>
           {view === "student" ? (
             <button className="icon-button" type="button" onClick={onReset}>
               <Icon name="rotate" /><span>Reset preview</span>
@@ -54,6 +57,10 @@ export default function App() {
   const [view, setView] = useState("overview");
   const [resetToken, setResetToken] = useState(0);
   const [assignment] = useState(loadAssignment);
+
+  const params=new URLSearchParams(window.location.search);
+  if(params.get("tool")==="enscribe" && params.get("writer")) return <EnScribeStudent studentId={params.get("writer")} />;
+  if(params.get("tool")==="department") return <DepartmentPortal />;
 
   if (assignmentSlug) {
     return <PublicAssignmentPage slug={assignmentSlug} />;

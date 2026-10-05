@@ -77,6 +77,7 @@ export default function StudentSubmissionFlow({
     [assignmentSignature]
   );
   const savedIdentity = useMemo(() => {
+    if(assignment.sandbox)return {firstName:"Example",lastName:"Learner",email:"fictional@example.invalid"};
     if (demoMode || typeof window === "undefined") {
       return { firstName: "", lastName: "", email: "" };
     }
@@ -88,7 +89,7 @@ export default function StudentSubmissionFlow({
     } catch {
       return { firstName: "", lastName: "", email: "" };
     }
-  }, [demoMode]);
+  }, [demoMode, assignment.sandbox]);
 
   const [firstName, setFirstName] = useState(savedIdentity.firstName || "");
   const [lastName, setLastName] = useState(savedIdentity.lastName || "");
@@ -122,7 +123,7 @@ export default function StudentSubmissionFlow({
   }, [resetToken, submissionMetaKey, demoMode]);
 
   useEffect(() => {
-    if (demoMode) return;
+    if (demoMode || assignment.sandbox) return;
     try {
       window.sessionStorage.setItem(
         IDENTITY_STORAGE_KEY,
@@ -168,7 +169,7 @@ export default function StudentSubmissionFlow({
       return;
     }
 
-    const accessCode =
+    const accessCode = assignment.sandbox ? "owned-test-session" :
       window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY)?.trim() ||
       requestPilotCode();
     if (!accessCode) {
@@ -256,7 +257,7 @@ export default function StudentSubmissionFlow({
               <p>
                 Your name and student email are attached to the classroom record
                 your teacher receives. Neither is included in requests sent to the
-                AI coach.
+                AI coach. Academic writing is processed by the AI provider for live checks and may contain identifying details.
               </p>
             </div>
           </div>

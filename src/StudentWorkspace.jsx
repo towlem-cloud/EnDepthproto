@@ -222,7 +222,7 @@ export default function StudentWorkspace({ resetToken, assignment }) {
     const text = newMessage.trim();
     if (!text || isCoachThinking || coachLimitReached) return;
 
-    const accessCode = pilotCode.trim() || requestPilotCode();
+    const accessCode = assignment.sandbox ? "owned-test-session" : pilotCode.trim() || requestPilotCode();
     if (!accessCode) return;
 
     const studentMessage = { id: Date.now(), role: "student", text };
