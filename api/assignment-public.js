@@ -2,7 +2,7 @@ import {
   databaseIsConfigured,
   getPublicAssignmentBySlug,
   json,
-} from "./submissions-db.js";
+} from "../server/submissions-db.js";
 
 export default {
   async fetch(request) {

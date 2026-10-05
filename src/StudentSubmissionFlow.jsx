@@ -136,7 +136,7 @@ export default function StudentSubmissionFlow({
   function requestPilotCode() {
     const currentCode = window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY) || "";
     const entered = window.prompt(
-      "Enter the EnDepth student pilot code before submitting.",
+      "Enter the EnDepth private student code from your teacher before submitting.",
       currentCode
     );
     if (entered === null) return "";
@@ -172,7 +172,7 @@ export default function StudentSubmissionFlow({
       window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY)?.trim() ||
       requestPilotCode();
     if (!accessCode) {
-      setSubmissionError("The student pilot code is required to submit.");
+      setSubmissionError("The private student code from your teacher is required to submit.");
       return;
     }
 

@@ -1,25 +1,7 @@
-import { neon } from "@neondatabase/serverless";
+import { getSql, databaseUrl } from "./db.js";
 
-let sqlClient = null;
 let guardPromise = null;
 
-function databaseUrl() {
-  return (
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    ""
-  );
-}
-
-function getSql() {
-  if (!sqlClient) {
-    const url = databaseUrl();
-    if (!url) throw new Error("DATABASE_NOT_CONFIGURED");
-    sqlClient = neon(url);
-  }
-  return sqlClient;
-}
 
 /**
  * Installs a database trigger that serializes new-email admission by locking the
@@ -84,6 +66,7 @@ export async function ensureAtomicCapacityGuard() {
             SELECT 1
             FROM pg_trigger
             WHERE tgname = 'endepth_submission_capacity_guard'
+              AND tgrelid = 'endepth_submissions'::regclass
               AND NOT tgisinternal
           ) THEN
             CREATE TRIGGER endepth_submission_capacity_guard

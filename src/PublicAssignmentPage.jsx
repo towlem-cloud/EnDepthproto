@@ -99,8 +99,7 @@ export default function PublicAssignmentPage({ slug }) {
         <div><LogoMark /><span>EnDepth classroom pilot</span></div>
         <p>
           Your name, student email, and submitted preparation are visible only to
-          your assigned teacher and the pilot administrator. Your identity is not
-          sent to the AI coach.
+          your assigned teacher and the pilot administrator. Separate name and email fields are excluded from AI requests. Your academic writing is processed by the AI provider when you request live coaching and may itself contain identifying details.
         </p>
       </footer>
     </div>

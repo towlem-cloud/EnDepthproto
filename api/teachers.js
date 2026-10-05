@@ -1,57 +1,37 @@
-import {
-  authenticateStaffCode,
-  databaseIsConfigured,
-  json,
-  listTeachers,
-  saveTeacherAccount,
-} from "./submissions-db.js";
-
-function errorMessage(error) {
-  const code = error instanceof Error ? error.message : "";
-  const messages = {
-    TEACHER_NAME_REQUIRED: "A teacher name is required.",
-    TEACHER_EMAIL_INVALID: "Enter a valid teacher email address.",
-    TEACHER_CODE_REQUIRED: "A new teacher code must be at least eight characters.",
-    TEACHER_CODE_TOO_SHORT: "The new teacher code must be at least eight characters.",
-    TEACHER_NOT_FOUND: "That teacher account could not be found.",
-  };
-  return messages[code] || "The teacher account could not be saved.";
-}
-
-export default {
-  async fetch(request) {
-    if (request.method !== "POST") {
-      return json({ error: "Use POST for this endpoint." }, 405);
+import { randomBytes } from 'node:crypto';
+import { ensurePilotSchema, listTeachers, json, cleanString } from '../server/submissions-db.js';
+import { requireStaff, rateLimit, token, passwordHash, fail } from '../server/security.js';
+export default { async fetch(request) {
+  if (request.method !== 'POST') return json({error:'Use POST.'},405);
+  try {
+    const sql = await ensurePilotSchema();
+    const staff = await requireStaff(request);
+    if (staff.role !== 'admin') fail(403,'Administrator access required.');
+    const body = await request.json();
+    if (body.action === 'list') return json({teachers:await listTeachers()});
+    const id = cleanString(body.teacherId || body.teacher?.teacherId,100);
+    const [account] = await sql`SELECT * FROM endepth_teachers WHERE teacher_id=${id}`;
+    if (!account) fail(404,'Account not found.');
+    if (body.action === 'issue') {
+      await rateLimit('issue:' + staff.teacherId,30);
+      const code = token(), salt = randomBytes(16).toString('hex');
+      const hash = await passwordHash(code,salt);
+      await sql`UPDATE endepth_teachers SET code_hash=${hash},code_salt=${salt},active=TRUE,activation_state='active',updated_at=NOW() WHERE teacher_id=${id}`;
+      return json({code, message:'Copy this code now and deliver it privately. It will not be shown again.'});
     }
-    if (!databaseIsConfigured()) {
-      return json({ error: "The EnDepth pilot database is not connected." }, 503);
+    if (body.action === 'disable') {
+      if (id === staff.teacherId) fail(400,'You cannot disable your own administrator account.');
+      await sql`UPDATE endepth_teachers SET active=FALSE,activation_state='disabled',updated_at=NOW() WHERE teacher_id=${id}`;
+      await sql`DELETE FROM department_sessions WHERE teacher_id=${id}`;
+      return json({ok:true});
     }
-
-    let body = {};
-    try {
-      body = await request.json();
-    } catch {
-      return json({ error: "The teacher request was invalid." }, 400);
+    if (body.action === 'save') {
+      const name = cleanString(body.teacher?.displayName,160);
+      if (!name) fail(400,'A display name is required.');
+      // IDs, email matching, role and credentials cannot be changed via a generic edit.
+      await sql`UPDATE endepth_teachers SET display_name=${name},updated_at=NOW() WHERE teacher_id=${id}`;
+      return json({ok:true});
     }
-
-    try {
-      const staff = await authenticateStaffCode(body.code);
-      if (!staff) return json({ error: "The staff code was not accepted." }, 401);
-      if (staff.role !== "admin") {
-        return json({ error: "Admin access is required to manage teachers." }, 403);
-      }
-
-      if (body.action === "list") {
-        return json({ teachers: await listTeachers() });
-      }
-      if (body.action === "save") {
-        const teacher = await saveTeacherAccount(body.teacher || {});
-        return json({ teacher });
-      }
-      return json({ error: "Choose a supported teacher action." }, 400);
-    } catch (error) {
-      console.error("EnDepth teacher management failed", error);
-      return json({ error: errorMessage(error) }, 400);
-    }
-  },
-};
+    fail(400,'Unsupported teacher action.');
+  } catch (e) {return json({error:e.status ? e.message : 'Teacher request failed.'},e.status || 500);}
+}};

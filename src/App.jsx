@@ -1,3 +1,5 @@
+import WritingStudent from "./WritingStudent";
+import "./department.css";
 import React, { useMemo, useState } from "react";
 import "./styles.css";
 import "./showcase.css";
@@ -34,7 +36,7 @@ function PilotHeader({ view, setView, onReset }) {
           ))}
         </nav>
         <div className="topbar-actions">
-          <Pill tone="orange">Two-teacher pilot</Pill>
+          <Pill tone="orange">Department tools</Pill>
           {view === "student" ? (
             <button className="icon-button" type="button" onClick={onReset}>
               <Icon name="rotate" /><span>Reset preview</span>
@@ -51,9 +53,12 @@ export default function App() {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("assignment") || "";
   }, []);
-  const [view, setView] = useState("overview");
+  const [view, setView] = useState(new URLSearchParams(window.location.search).has("department") ? "staff" : "overview");
   const [resetToken, setResetToken] = useState(0);
   const [assignment] = useState(loadAssignment);
+
+  const writingSlug = new URLSearchParams(window.location.search).get("writing");
+  if(writingSlug) return <WritingStudent slug={writingSlug}/>;
 
   if (assignmentSlug) {
     return <PublicAssignmentPage slug={assignmentSlug} />;

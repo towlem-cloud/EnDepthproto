@@ -203,13 +203,13 @@ export default function StudentWorkspace({ resetToken, assignment }) {
 
   function requestPilotCode() {
     const entered = window.prompt(
-      "Enter the EnDepth pilot access code. Your teacher will provide it.",
+      "Enter the EnDepth private student code. Your teacher will provide it.",
       pilotCode
     );
     if (entered === null) return "";
     const cleanCode = entered.trim();
     if (!cleanCode) {
-      setCoachError("A pilot access code is required to use the live coach.");
+      setCoachError("A private student code is required to use the live coach.");
       return "";
     }
     window.sessionStorage.setItem(PILOT_CODE_STORAGE_KEY, cleanCode);

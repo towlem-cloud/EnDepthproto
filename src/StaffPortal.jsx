@@ -1,3 +1,5 @@
+import WritingDesk from "./WritingDesk";
+import { SampleTools, StudentAccess, AccountAdmin } from "./DepartmentTools";
 import React, { useEffect, useMemo, useState } from "react";
 import { Icon, LogoMark, Pill } from "./endepthUI";
 import {
@@ -31,14 +33,12 @@ function formatDate(value) {
 }
 
 function csvCell(value) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+  return `"${String(value ?? "").replace(/^[\s]*[=+@\-\t\r]/, m => "'" + m).replace(/"/g, '""')}"`;
 }
 
 export default function StaffPortal() {
-  const [code, setCode] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return window.sessionStorage.getItem(STAFF_CODE_KEY) || "";
-  });
+  const [code, setCode] = useState("");
+  const [module, setModule] = useState("endepth");
   const [draftCode, setDraftCode] = useState(code);
   const [staff, setStaff] = useState(null);
   const [tab, setTab] = useState("assignments");
@@ -58,7 +58,7 @@ export default function StaffPortal() {
     const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...body, code: activeCode }),
+      body: JSON.stringify(path === "/api/staff-auth" ? { ...body, code: activeCode } : body),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -79,9 +79,9 @@ export default function StaffPortal() {
     setError("");
     try {
       const data = await post("/api/staff-auth", { code: cleanCode }, cleanCode);
-      window.sessionStorage.setItem(STAFF_CODE_KEY, cleanCode);
-      setCode(cleanCode);
-      setDraftCode(cleanCode);
+      window.sessionStorage.removeItem(STAFF_CODE_KEY);
+      setCode("");
+      setDraftCode("");
       setStaff(data.staff);
       setTab("assignments");
       await loadPortalData(cleanCode, data.staff);
@@ -148,7 +148,8 @@ export default function StaffPortal() {
   }
 
   useEffect(() => {
-    if (code && !staff) authenticate(code);
+    window.sessionStorage.removeItem(STAFF_CODE_KEY);
+    post("/api/staff-auth", {action:"session"}).then(async d => { if(d.staff){setStaff(d.staff); await loadPortalData("",d.staff);} }).catch(()=>{});
     // Restore one authenticated browser session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -178,6 +179,7 @@ export default function StaffPortal() {
     null;
 
   function lockPortal() {
+    post("/api/staff-auth", {action:"logout"}).catch(()=>setError("Sign-out could not complete. Close this browser and try again."));
     window.sessionStorage.removeItem(STAFF_CODE_KEY);
     setCode("");
     setDraftCode("");
@@ -307,11 +309,10 @@ export default function StaffPortal() {
         <section className="content-card staff-login-card">
           <div className="staff-lock-mark"><LogoMark /></div>
           <div>
-            <Pill tone="orange">Two-teacher pilot</Pill>
-            <h1>Open the EnDepth Teacher Portal.</h1>
+            <Pill tone="orange">Department access</Pill>
+            <h1>Open your department portal.</h1>
             <p>
-              Morgan, Teacher 2, and the pilot administrator each use a different
-              private code. Teacher records are separated on the server.
+              Use your individual staff code for EnDepth and EnScribe. Only your students and assignments appear unless you are an administrator.
             </p>
           </div>
           <form
@@ -364,6 +365,11 @@ export default function StaffPortal() {
         </div>
       </section>
 
+      <nav className="department-module-nav" aria-label="Department tools"><button className={module==='endepth'?'active':''} onClick={()=>setModule('endepth')}>EnDepth</button><button className={module==='enscribe'?'active':''} onClick={()=>setModule('enscribe')}>EnScribe</button><button className={module==='testing'?'active':''} onClick={()=>setModule('testing')}>Try both tools</button>{staff.role==='admin'&&<button className={module==='accounts'?'active':''} onClick={()=>setModule('accounts')}>Department accounts</button>}</nav>
+      {module==='enscribe'&&<WritingDesk/>}
+      {module==='testing'&&<SampleTools/>}
+      {module==='accounts'&&staff.role==='admin'&&<AccountAdmin teachers={teachers} refresh={()=>loadPortalData('',staff)}/>}
+      <div hidden={module!=='endepth'}>
       <nav className="staff-tabs" aria-label="Teacher portal sections">
         <button className={tab === "assignments" || tab === "editor" ? "active" : ""} onClick={() => setTab("assignments")}>
           Assignments
@@ -378,7 +384,7 @@ export default function StaffPortal() {
           Student records
         </button>
         {staff.role === "admin" ? (
-          <button className={tab === "teachers" ? "active" : ""} onClick={() => setTab("teachers")}>
+          <button className={tab === "teachers" ? "active" : ""} onClick={() => setModule("accounts")}>
             Teacher accounts
           </button>
         ) : null}
@@ -496,6 +502,7 @@ export default function StaffPortal() {
                 </>
               ) : null}
             </div>
+            {assignmentDraft.assignmentId && <StudentAccess module="endepth" assignmentId={assignmentDraft.assignmentId}/>}
             {assignmentDraft.publicSlug ? <div className="share-link-box"><span>Student link</span><code>{studentUrl(assignmentDraft)}</code></div> : null}
           </div>
         </section>
@@ -553,29 +560,7 @@ export default function StaffPortal() {
         </section>
       ) : null}
 
-      {tab === "teachers" && staff.role === "admin" ? (
-        <section className="portal-section">
-          <div className="portal-section-heading"><div><div className="card-kicker">Admin controls</div><h2>Teacher accounts and code rotation</h2></div><button className="primary-button" type="button" onClick={() => setTeacherDraft({ teacherId: "", displayName: "", email: "", slug: "", newCode: "", active: true })}>Add teacher</button></div>
-          <div className="teacher-account-grid">
-            <div className="content-card teacher-account-list">
-              {teachers.map((teacher) => <button className="teacher-account-row" type="button" key={teacher.teacherId} onClick={() => setTeacherDraft({ ...teacher, newCode: "" })}><div><strong>{teacher.displayName}</strong><span>{teacher.email || "No email added"}</span></div><Pill tone={teacher.active ? "green" : "neutral"}>{teacher.active ? "Active" : "Inactive"}</Pill></button>)}
-            </div>
-            <div className="content-card teacher-account-editor">
-              {teacherDraft ? (
-                <>
-                  <div className="card-kicker">{teacherDraft.teacherId ? "Edit teacher" : "New teacher"}</div><h3>{teacherDraft.displayName || "Teacher account"}</h3>
-                  <label><span>Display name</span><input value={teacherDraft.displayName} onChange={(event) => setTeacherDraft((current) => ({ ...current, displayName: event.target.value }))} /></label>
-                  <label><span>Teacher email</span><input type="email" value={teacherDraft.email} onChange={(event) => setTeacherDraft((current) => ({ ...current, email: event.target.value }))} /></label>
-                  <label><span>Account slug</span><input value={teacherDraft.slug} onChange={(event) => setTeacherDraft((current) => ({ ...current, slug: event.target.value }))} /></label>
-                  <label><span>{teacherDraft.teacherId ? "New code (leave blank to keep current)" : "Teacher code"}</span><input type="password" value={teacherDraft.newCode} onChange={(event) => setTeacherDraft((current) => ({ ...current, newCode: event.target.value }))} /></label>
-                  <label className="account-active-toggle"><input type="checkbox" checked={teacherDraft.active !== false} onChange={(event) => setTeacherDraft((current) => ({ ...current, active: event.target.checked }))} /><span>Active teacher account</span></label>
-                  <button className="primary-button" type="button" onClick={saveTeacher} disabled={loading}>Save teacher account</button>
-                </>
-              ) : <div className="empty-detail"><Icon name="users" size={30} /><h3>Select a teacher</h3><p>Rename Teacher 2, add their email, or rotate a teacher code without redeploying EnDepth.</p></div>}
-            </div>
-          </div>
-        </section>
-      ) : null}
+      </div>
     </main>
   );
 }

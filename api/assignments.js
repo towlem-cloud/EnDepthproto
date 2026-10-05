@@ -1,11 +1,12 @@
+import { requireStaff } from "../server/security.js";
 import {
-  authenticateStaffCode,
+  ensurePilotSchema,
   databaseIsConfigured,
   json,
   listAssignmentsForStaff,
   saveAssignmentForStaff,
-} from "./submissions-db.js";
-import { syncAssignmentSubmissionOwnership } from "./ownership-maintenance.js";
+} from "../server/submissions-db.js";
+import { syncAssignmentSubmissionOwnership } from "../server/ownership-maintenance.js";
 
 function assignmentError(error) {
   const code = error instanceof Error ? error.message : "";
@@ -39,7 +40,8 @@ export default {
     }
 
     try {
-      const staff = await authenticateStaffCode(body.code);
+      await ensurePilotSchema();
+      const staff = await requireStaff(request);
       if (!staff) return json({ error: "The staff code was not accepted." }, 401);
 
       if (body.action === "list") {
@@ -62,7 +64,7 @@ export default {
       }
       return json({ error: "Choose a supported assignment action." }, 400);
     } catch (error) {
-      console.error("EnDepth assignment operation failed", error);
+      if (error.status) return json({ error: error.message }, error.status);
       return json({ error: assignmentError(error) }, 400);
     }
   },

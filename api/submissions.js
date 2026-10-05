@@ -1,5 +1,8 @@
-import { ensureAtomicCapacityGuard } from "./capacity-guard.js";
+import { checkOrigin } from "../server/security.js";
+import { studentAccess } from "../server/studio.js";
+import { ensureAtomicCapacityGuard } from "../server/capacity-guard.js";
 import {
+  ensurePilotSchema,
   cleanMessages,
   cleanString,
   databaseIsConfigured,
@@ -7,7 +10,7 @@ import {
   json,
   normalizeEmail,
   upsertSubmission,
-} from "./submissions-db.js";
+} from "../server/submissions-db.js";
 
 export default {
   async fetch(request) {
@@ -21,11 +24,6 @@ export default {
       );
     }
 
-    const requiredCode = process.env.ENDEPTH_ACCESS_CODE;
-    if (!requiredCode) {
-      return json({ error: "The student pilot code has not been configured." }, 503);
-    }
-
     let body;
     try {
       body = await request.json();
@@ -33,17 +31,19 @@ export default {
       return json({ error: "The submission request was invalid." }, 400);
     }
 
-    if (cleanString(body?.accessCode, 200) !== requiredCode) {
-      return json({ error: "The class pilot code was not accepted." }, 401);
-    }
+    let identity;
+    try {
+      checkOrigin(request); await ensurePilotSchema();
+      identity = (await studentAccess({module:'endepth', assignmentId:body.assignmentId || body.assignment?.assignmentId, studentToken:body.studentToken || body.accessCode})).student;
+    } catch(e) { return json({error:e.status ? e.message : 'Student access failed.'},e.status || 500); }
 
     const assignmentId = cleanString(
       body?.assignmentId || body?.assignment?.assignmentId,
       100
     );
-    const firstName = cleanString(body?.student?.firstName, 80);
-    const lastName = cleanString(body?.student?.lastName, 80);
-    const studentEmail = normalizeEmail(body?.student?.email);
+    const firstName = identity.first_name;
+    const lastName = identity.last_name;
+    const studentEmail = identity.email;
     const work = body?.work || {};
     const initialResponse = cleanString(work.initialResponse, 8000);
     const evidence = cleanString(work.evidence, 6000);
@@ -99,7 +99,7 @@ export default {
       if (code.includes("ASSIGNMENT_NOT_OPEN")) {
         return json({ error: "This assignment is no longer open for submissions." }, 409);
       }
-      console.error("EnDepth submission failed", error);
+
       return json(
         { error: "Your preparation could not be saved to the classroom database." },
         500

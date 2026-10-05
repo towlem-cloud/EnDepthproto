@@ -1,7 +1,9 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { neon } from "@neondatabase/serverless";
+import { migrateAtomic } from "./atomic-schema.js";
+import { migrateDepartment } from "./department-schema.js";
+import { passwordHash, passwordMatches } from "./security.js";
+import { randomBytes } from "node:crypto";
+import { getSql, databaseUrl } from "./db.js";
 
-let sqlClient = null;
 let schemaPromise = null;
 
 export function json(data, status = 200) {
@@ -23,39 +25,7 @@ export function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
 }
 
-export function databaseUrl() {
-  return (
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    ""
-  );
-}
-
-export function databaseIsConfigured() {
-  return Boolean(databaseUrl());
-}
-
-function getSql() {
-  if (!sqlClient) {
-    const url = databaseUrl();
-    if (!url) throw new Error("DATABASE_NOT_CONFIGURED");
-    sqlClient = neon(url);
-  }
-  return sqlClient;
-}
-
-function safeEqual(left, right) {
-  const leftHash = createHash("sha256").update(String(left || "")).digest();
-  const rightHash = createHash("sha256").update(String(right || "")).digest();
-  return timingSafeEqual(leftHash, rightHash);
-}
-
-function hashTeacherCode(code, salt) {
-  return createHash("sha256")
-    .update(`${salt}:${String(code || "")}`)
-    .digest("hex");
-}
+export function databaseIsConfigured() { return Boolean(databaseUrl()); }
 
 function randomId(prefix) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
@@ -63,15 +33,6 @@ function randomId(prefix) {
 
 function randomPublicSlug() {
   return randomBytes(6).toString("hex");
-}
-
-function slugify(value) {
-  const slug = cleanString(value, 100)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-  return slug || `teacher-${randomBytes(3).toString("hex")}`;
 }
 
 export function normalizeAssignment(assignment = {}) {
@@ -122,6 +83,8 @@ function mapTeacher(row) {
     displayName: row.display_name,
     email: row.email,
     active: Boolean(row.active),
+    role: row.role,
+    activationState: row.activation_state || (row.active ? "active" : "disabled"),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -146,6 +109,7 @@ function mapAssignment(row) {
     maxCoachQuestions: Number(row.max_coach_questions) || 4,
     studentLimit: Number(row.student_limit) || 17,
     status: row.status,
+    sandbox: row.sandbox,
     submissionCount: Number(row.submission_count) || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -200,7 +164,7 @@ async function seedEnvironmentTeachers(sql) {
   for (const seed of seeds) {
     if (!seed.code) continue;
     const salt = randomBytes(16).toString("hex");
-    const codeHash = hashTeacherCode(seed.code, salt);
+    const codeHash = await passwordHash(seed.code, salt);
     await sql`
       INSERT INTO endepth_teachers (
         teacher_id, slug, display_name, email, code_salt, code_hash, active,
@@ -302,6 +266,8 @@ export async function ensurePilotSchema() {
       `;
 
       await seedEnvironmentTeachers(sql);
+      await migrateDepartment(sql);
+      await migrateAtomic(sql);
       return sql;
     })().catch((error) => {
       schemaPromise = null;
@@ -316,29 +282,25 @@ export async function authenticateStaffCode(rawCode) {
   if (!code) return null;
   const sql = await ensurePilotSchema();
 
-  const adminCode = cleanString(process.env.ENDEPTH_ADMIN_CODE, 300);
-  if (adminCode && safeEqual(code, adminCode)) {
-    return {
-      role: "admin",
-      teacherId: null,
-      slug: "pilot-admin",
-      displayName: "EnDepth Pilot Admin",
-      email: "",
-    };
-  }
-
   const rows = await sql`
-    SELECT teacher_id, slug, display_name, email, code_salt, code_hash, active
+    SELECT teacher_id, slug, display_name, email, code_salt, code_hash, active, role
     FROM endepth_teachers
     WHERE active = TRUE
     ORDER BY created_at ASC
   `;
 
   for (const row of rows) {
-    const candidate = hashTeacherCode(code, row.code_salt);
-    if (safeEqual(candidate, row.code_hash)) {
+    if (await passwordMatches(code, row)) {
+      if (!row.code_hash.startsWith('scrypt:')) {
+        const salt = randomBytes(16).toString('hex');
+        const hash = await passwordHash(code, salt);
+        const upgraded = await sql`UPDATE endepth_teachers SET code_salt=${salt},code_hash=${hash}
+          WHERE teacher_id=${row.teacher_id} AND code_hash=${row.code_hash} AND active=TRUE RETURNING teacher_id`;
+        // Never authenticate a credential that was concurrently revoked.
+        if (!upgraded.length) return null;
+      }
       return {
-        role: "teacher",
+        role: row.role,
         teacherId: row.teacher_id,
         slug: row.slug,
         displayName: row.display_name,
@@ -347,49 +309,6 @@ export async function authenticateStaffCode(rawCode) {
     }
   }
 
-  // Recovery path: environment teacher codes remain authoritative recovery
-  // credentials. If a stored hash ever drifts from the configured code, repair
-  // that teacher record in place without touching assignments or submissions.
-  const recoverySeeds = [
-    {
-      slug: "morgan-towle",
-      code: cleanString(process.env.ENDEPTH_TEACHER_CODE, 300),
-    },
-    {
-      slug: "teacher-two",
-      code: cleanString(process.env.ENDEPTH_SECOND_TEACHER_CODE, 300),
-    },
-  ];
-
-  for (const seed of recoverySeeds) {
-    if (!seed.code || !safeEqual(code, seed.code)) continue;
-
-    const teacherRows = await sql`
-      SELECT teacher_id, slug, display_name, email, active
-      FROM endepth_teachers
-      WHERE slug = ${seed.slug}
-      LIMIT 1
-    `;
-    const teacher = teacherRows[0];
-    if (!teacher) continue;
-
-    const salt = randomBytes(16).toString("hex");
-    const codeHash = hashTeacherCode(code, salt);
-    await sql`
-      UPDATE endepth_teachers
-      SET code_salt = ${salt}, code_hash = ${codeHash}, active = TRUE,
-          updated_at = NOW()
-      WHERE teacher_id = ${teacher.teacher_id}
-    `;
-
-    return {
-      role: "teacher",
-      teacherId: teacher.teacher_id,
-      slug: teacher.slug,
-      displayName: teacher.display_name,
-      email: teacher.email,
-    };
-  }
 
   return null;
 }
@@ -397,67 +316,11 @@ export async function authenticateStaffCode(rawCode) {
 export async function listTeachers() {
   const sql = await ensurePilotSchema();
   const rows = await sql`
-    SELECT teacher_id, slug, display_name, email, active, created_at, updated_at
+    SELECT teacher_id, slug, display_name, email, active, role, activation_state, created_at, updated_at
     FROM endepth_teachers
     ORDER BY display_name ASC
   `;
   return rows.map(mapTeacher);
-}
-
-export async function saveTeacherAccount(input = {}) {
-  const sql = await ensurePilotSchema();
-  const teacherId = cleanString(input.teacherId, 100);
-  const displayName = cleanString(input.displayName, 160);
-  const email = normalizeEmail(input.email);
-  const slug = slugify(input.slug || displayName);
-  const newCode = cleanString(input.newCode, 300);
-  const active = input.active !== false;
-
-  if (!displayName) throw new Error("TEACHER_NAME_REQUIRED");
-  if (email && !isValidEmail(email)) throw new Error("TEACHER_EMAIL_INVALID");
-
-  if (!teacherId) {
-    if (newCode.length < 8) throw new Error("TEACHER_CODE_REQUIRED");
-    const salt = randomBytes(16).toString("hex");
-    const codeHash = hashTeacherCode(newCode, salt);
-    const rows = await sql`
-      INSERT INTO endepth_teachers (
-        teacher_id, slug, display_name, email, code_salt, code_hash, active,
-        created_at, updated_at
-      ) VALUES (
-        ${randomId("teacher")}, ${slug}, ${displayName}, ${email},
-        ${salt}, ${codeHash}, ${active}, NOW(), NOW()
-      )
-      RETURNING teacher_id, slug, display_name, email, active, created_at, updated_at
-    `;
-    return mapTeacher(rows[0]);
-  }
-
-  if (newCode) {
-    if (newCode.length < 8) throw new Error("TEACHER_CODE_TOO_SHORT");
-    const salt = randomBytes(16).toString("hex");
-    const codeHash = hashTeacherCode(newCode, salt);
-    const rows = await sql`
-      UPDATE endepth_teachers
-      SET slug = ${slug}, display_name = ${displayName}, email = ${email},
-          code_salt = ${salt}, code_hash = ${codeHash}, active = ${active},
-          updated_at = NOW()
-      WHERE teacher_id = ${teacherId}
-      RETURNING teacher_id, slug, display_name, email, active, created_at, updated_at
-    `;
-    if (!rows[0]) throw new Error("TEACHER_NOT_FOUND");
-    return mapTeacher(rows[0]);
-  }
-
-  const rows = await sql`
-    UPDATE endepth_teachers
-    SET slug = ${slug}, display_name = ${displayName}, email = ${email},
-        active = ${active}, updated_at = NOW()
-    WHERE teacher_id = ${teacherId}
-    RETURNING teacher_id, slug, display_name, email, active, created_at, updated_at
-  `;
-  if (!rows[0]) throw new Error("TEACHER_NOT_FOUND");
-  return mapTeacher(rows[0]);
 }
 
 export async function listAssignmentsForStaff(staff) {
@@ -514,7 +377,7 @@ export async function saveAssignmentForStaff(staff, input = {}) {
     `;
     const existing = ownershipRows[0];
     if (!existing) throw new Error("ASSIGNMENT_NOT_FOUND");
-    if (staff.role !== "admin" && existing.teacher_id !== staff.teacherId) {
+    if (existing.teacher_id !== teacherId || (staff.role !== "admin" && existing.teacher_id !== staff.teacherId)) {
       throw new Error("FORBIDDEN");
     }
 

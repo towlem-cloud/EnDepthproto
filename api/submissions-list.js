@@ -1,11 +1,12 @@
+import { requireStaff } from "../server/security.js";
 import {
-  authenticateStaffCode,
+  ensurePilotSchema,
   cleanString,
   databaseIsConfigured,
   json,
   listSubmissionsForStaff,
-} from "./submissions-db.js";
-import { backfillLegacySubmissionOwnership } from "./ownership-maintenance.js";
+} from "../server/submissions-db.js";
+import { backfillLegacySubmissionOwnership } from "../server/ownership-maintenance.js";
 
 export default {
   async fetch(request) {
@@ -28,10 +29,11 @@ export default {
       cleanString(body.code, 300);
 
     try {
-      const staff = await authenticateStaffCode(suppliedCode);
+      await ensurePilotSchema();
+      const staff = await requireStaff(request);
       if (!staff) return json({ error: "The staff code was not accepted." }, 401);
 
-      await backfillLegacySubmissionOwnership();
+
       const submissions = await listSubmissionsForStaff(
         staff,
         body.assignmentId,
@@ -39,7 +41,7 @@ export default {
       );
       return json({ submissions, staff });
     } catch (error) {
-      console.error("EnDepth submission list failed", error);
+      if (error.status) return json({ error: error.message }, error.status);
       return json({ error: "Student submissions could not be loaded." }, 500);
     }
   },
