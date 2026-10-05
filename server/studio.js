@@ -2,6 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { getSql } from './db.js';
 import { cleanString, normalizeEmail, isValidEmail, getAssignmentById } from './submissions-db.js';
 import { token, digest, fail, rateLimit } from './security.js';
+function draftText(value) {
+  if (typeof value !== 'string' || !value.trim()) fail(400,'A nonempty draft is required.');
+  if (value.length > 60000) fail(400,'Drafts must be 60,000 characters or fewer. Your writing has not been truncated or saved.');
+  return value;
+}
 const id = prefix => prefix + '_' + randomBytes(16).toString('hex');
 export async function assignmentFor(module, assignmentId) {
   if (module === 'endepth') {
@@ -42,7 +47,7 @@ export async function issueStudent(staff,body) {
   if (!first || !last) fail(400,'First and last name are required.');
   const value = token();
   // Atomic capacity and code rotation are handled by a DB function (assignment row lock).
-  const [student] = await sql`SELECT * FROM department_issue_student(${body.module},${a.assignment_id},${email},${first},${last},${digest(value)},${id('student')},${cleanString(body.original,60000)})`;
+  const [student] = await sql`SELECT * FROM department_issue_student(${body.module},${a.assignment_id},${email},${first},${last},${digest(value)},${id('student')},${body.original ? draftText(body.original) : ''})`;
   return {studentId:student.student_id,code:value};
 }
 export async function studentAccess(body) {
@@ -54,7 +59,7 @@ export async function studentAccess(body) {
   return {student,assignment};
 }
 export async function preserveOriginal(studentId,original) {
-  const text = cleanString(original,60000);
+  const text = draftText(original);
   if (!text) fail(400,'Paste your independent original draft first.');
   const [draft] = await getSql()`INSERT INTO enscribe_drafts (student_id,original,working) VALUES (${studentId},${text},${text}) ON CONFLICT (student_id) DO NOTHING RETURNING *`;
   if (!draft) fail(409,'The original draft is already preserved and cannot be replaced.');
@@ -70,7 +75,7 @@ export async function saveDraft(student,assignment,body) {
   if (assignment.status !== 'open') fail(409,'This assignment is not open.');
   const sql = getSql();
   if (body.action==='original') return {draft:await preserveOriginal(student.student_id,body.original)};
-  const working=cleanString(body.working,60000), explanation=cleanString(body.explanation,6000), reflection=cleanString(body.reflection,6000);
+  const working=draftText(body.working), explanation=cleanString(body.explanation,6000), reflection=cleanString(body.reflection,6000);
   if (!working) fail(400,'A working draft is required.');
   if (!explanation) fail(400,'Explain what changed or why you kept your draft.');
   if (body.action==='submit' && !reflection) fail(400,'Add your final reflection before submitting.');

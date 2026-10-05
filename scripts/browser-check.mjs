@@ -4,7 +4,7 @@ import { readFile,mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const secrets=[];
 const server=spawn(process.execPath,['scripts/dev.mjs','--synthetic'],{stdio:['ignore','pipe','pipe']});
-let browser, page;
+let browser, page, student;
 try {
   await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Local server startup timed out')),30000);server.stdout.on('data',d=>{if(String(d).includes('Local full-stack server')){clearTimeout(timeout);resolve();}});server.on('exit',()=>reject(new Error('Local server exited')));});
   const {adminCode}=JSON.parse(await readFile('test-results/ui-credentials.json','utf8'));secrets.push(adminCode);
@@ -30,7 +30,7 @@ try {
   await access.getByRole('button',{name:'Issue private student code'}).click();
   await access.locator('.private-code code').waitFor();
   const studentCode=await access.locator('.private-code code').innerText();secrets.push(studentCode);
-  const student=await browser.newPage({viewport:{width:390,height:844}});student.on('pageerror',e=>errors.push(e.message));
+  student=await browser.newPage({viewport:{width:390,height:844}});student.on('pageerror',e=>errors.push(e.message));
   await student.goto('http://localhost:5173'+link);
   await student.getByLabel('Private student code',{exact:true}).fill(studentCode);
   await student.getByRole('button',{name:'Open workspace'}).click();
@@ -68,5 +68,6 @@ try {
   console.log('PASS: desktop teacher creation/import access; mobile original/revision/submit/reopen; EnDepth sample link; no React errors; no mobile overflow. Live AI was not called.');
 } catch(e) {
   if(page) await page.screenshot({path:'test-results/failure-redacted.png',fullPage:true,mask:[page.locator('code'),page.locator('input[type=password]')]}).catch(()=>{});
-  let message=String(e.stack || e);for(const secret of secrets)message=message.replaceAll(secret,'[redacted synthetic credential]');console.error(message);process.exitCode=1;
+  if(student) await student.screenshot({path:'test-results/student-failure-redacted.png',fullPage:true,mask:[student.locator('code'),student.locator('input[type=password]')]}).catch(()=>{});
+  let message=String(e.stack || e) + (student ? '\nStudent visible state: '+await student.locator('body').innerText().catch(()=> '') : '');for(const secret of secrets)message=message.replaceAll(secret,'[redacted synthetic credential]');console.error(message);process.exitCode=1;
 } finally {await browser?.close();server.kill('SIGTERM');}

@@ -96,7 +96,7 @@ test('student email cannot impersonate; original immutable; revisions, conflicts
  studentA=await issue('enscribe',aw.assignment_id,teacherA.cookie);
  const base={module:'enscribe',assignmentId:aw.assignment_id,studentToken:studentA.code};
  assert.equal((await send(department,{action:'student-read',...base,studentToken:'',email:'synthetic@example.invalid'})).status,401);
- const original='The gate suggests a change. Ari waits by an empty bench.';
+ const original='\n  The gate suggests a change. Ari waits by an empty bench.  \n';
  let r=await send(department,{action:'original',...base,original});assert.equal(r.status,200,JSON.stringify(r.data));
  assert.equal((await send(department,{action:'original',...base,original:'Replacement'})).status,409);
  await assert.rejects(sql`UPDATE enscribe_drafts SET original='Overwrite' WHERE student_id=${studentA.studentId}`,/ORIGINAL_IMMUTABLE/);
