@@ -33,8 +33,9 @@ export const sessionCookie = value => `department_session=${value}; HttpOnly; Se
 export async function createSession(staff) {
   const value = token();
   const sql = getSql();
-  await sql`INSERT INTO department_sessions (token_hash, teacher_id, credential_hash, expires_at)
-    SELECT ${digest(value)}, teacher_id, code_hash, NOW() + INTERVAL '8 hours' FROM endepth_teachers WHERE teacher_id = ${staff.teacherId} AND active = TRUE`;
+  const created = await sql`INSERT INTO department_sessions (token_hash, teacher_id, credential_hash, expires_at)
+    SELECT ${digest(value)}, teacher_id, code_hash, NOW() + INTERVAL '8 hours' FROM endepth_teachers WHERE teacher_id = ${staff.teacherId} AND active = TRUE AND code_hash = ${staff.credentialHash} RETURNING token_hash`;
+  if (!created.length) fail(401, "This credential changed during sign-in. Use the current code.");
   return value;
 }
 export async function sessionStaff(request) {

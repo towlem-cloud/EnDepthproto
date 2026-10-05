@@ -4,6 +4,7 @@ import { ROSTER, passwordHash, token } from './security.js';
 export async function migrateDepartment(sql) {
   await sql`ALTER TABLE endepth_teachers ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'teacher'`;
   await sql`ALTER TABLE endepth_teachers ADD COLUMN IF NOT EXISTS activation_state TEXT NOT NULL DEFAULT 'active'`;
+  await sql`UPDATE endepth_teachers SET activation_state='disabled' WHERE active=FALSE AND activation_state='active'`;
   await sql`CREATE TABLE IF NOT EXISTS department_sessions (token_hash TEXT PRIMARY KEY, teacher_id TEXT NOT NULL REFERENCES endepth_teachers(teacher_id), credential_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS department_rate_limits (key TEXT NOT NULL, bucket BIGINT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(key,bucket))`;
   // Existing admin environment credential is seeded once. Rotation never restores it.

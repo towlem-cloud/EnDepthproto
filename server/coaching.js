@@ -10,7 +10,7 @@ export function writingContext(assignment,draft,body) {
     original:draft.original,working:draft.working,focus:cleanString(body.focus,120),goal:cleanString(body.goal,2000),passage:cleanString(body.passage,8000),tried:cleanString(body.tried,2000),question:cleanString(body.question,2000)});
 }
 async function api(path,body) {
-  const response=await fetch('https://api.openai.com/v1/'+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${process.env.OPENAI_API_KEY}`},body:JSON.stringify(body),signal:AbortSignal.timeout(40000)});
+  const response=await fetch('https://api.openai.com/v1/'+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${process.env.OPENAI_API_KEY}`},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});
   const payload=await response.json().catch(()=>({}));
   if(!response.ok) fail(502,'Live coaching is unavailable. Your check was not used.');
   return payload;

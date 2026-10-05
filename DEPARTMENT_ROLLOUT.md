@@ -14,7 +14,7 @@ Migrations in server/department-schema.js and server/atomic-schema.js are additi
 
 Vercel environment inspection showed DATABASE_URL and its aliases target both preview and production. All API database clients now use server/db.js. On VERCEL_ENV=preview each query runs inside a transaction with search_path=department_preview_v1, without public in the path. The schema is created if permitted; failure stops the request rather than using production. Preview contains synthetic/new test data only, not copied production records. The isolation is a schema in the existing database, not a separately provisioned paid database. Preview and production still share infrastructure and existing environment credentials; preview is protected by Vercel's existing deployment protection.
 
-Only seven actual API entrypoints are retained under api/; database and other helpers moved under server/. No new plan or service is required. Vercel team metadata did not expose the billing tier, so the implementation conservatively remains below the 12-function Hobby ceiling rather than assuming a higher plan.
+Only eight actual API entrypoints are retained under api/; database and other helpers moved under server/. No new plan or service is required. Vercel's Git deployment context confirmed the Hobby plan; eight entrypoints remain below its 12-function ceiling.
 
 ## Administrator workflow
 
@@ -40,7 +40,9 @@ Student codes are bearer credentials, so they must be kept private. Reissue a co
 
 ## Verification and release gates
 
-`npm ci`, `npm test`, `npm run build`, `git diff --check`.
+`npm ci`, `npm test`, `npx playwright install --with-deps chromium`, `npm run test:ui`, `npm run build`, `git diff --check`.
+
+The browser suite starts a loopback-only synthetic backend, exercises teacher creation and student access, checks the writing workflow at 390px and teacher/EnDepth pages at 1440px, and captures screenshots with no real student data. Generated credentials remain in ignored local test output and are not uploaded as CI artifacts.
 
 The acceptance suite runs actual SQL/PLpgSQL using isolated in-memory PGlite, with mocked OpenAI. It tests migration preservation, all seven teacher activations, both modules, hostile ownership edits, admin scope, student-code authentication, original immutability, revision persistence, optimistic conflicts, submission/reopen, four-turn concurrency/idempotency, moderation/provider failures, legacy quotas, capacity, sandbox isolation, CSV safety, code revocation and rate limits. PGlite serializes statements; it is not a multi-connection Neon load test. The database row locks and atomic functions provide the production concurrency boundary.
 

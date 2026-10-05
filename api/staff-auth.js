@@ -16,6 +16,7 @@ export default { async fetch(request) {
     const staff = await authenticateStaffCode(body.code);
     if (!staff) return json({error:'That staff code was not accepted.'},401);
     const value = await createSession(staff);
-    return Response.json({staff},{headers:{'Set-Cookie':sessionCookie(value),'Cache-Control':'no-store'}});
+    const { credentialHash, ...publicStaff } = staff;
+    return Response.json({staff:publicStaff},{headers:{'Set-Cookie':sessionCookie(value),'Cache-Control':'no-store'}});
   } catch (error) { return json({error:error.status ? error.message : 'Staff sign-in could not be completed.'},error.status || 500); }
 }};

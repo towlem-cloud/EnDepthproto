@@ -177,6 +177,20 @@ test('rotation and disabling revoke sessions and all legacy environment fallback
  await migrateDepartment(sql);
  assert.equal((await sql`SELECT active FROM endepth_teachers WHERE teacher_id=${id}`)[0].active,false);
 });
+test('credential rotation during login cannot mint a session bound to the new credential',async()=>{
+ const {createSession}=await import('../server/security.js');
+ const verified=await authenticateStaffCode(teacherB.code);assert.ok(verified);
+ await send(teachers,{action:'issue',teacherId:verified.teacherId},admin.cookie);
+ await assert.rejects(createSession(verified),/credential changed/);
+});
+test('failed repeat import preserves original and does not revoke the current student code',async()=>{
+ const a=(await send(department,{action:'save-assignment',assignment:writing},admin.cookie)).data.assignment;
+ const body={action:'issue-student',module:'enscribe',assignmentId:a.assignment_id,email:'import@example.invalid',firstName:'Synthetic',lastName:'Import',original:'Independent original.'};
+ const first=await send(department,body,admin.cookie);assert.equal(first.status,200);
+ assert.equal((await send(department,{...body,original:'Replacement'},admin.cookie)).status,409);
+ const read=await send(department,{action:'student-read',module:'enscribe',assignmentId:a.assignment_id,studentToken:first.data.code});
+ assert.equal(read.status,200);assert.equal(read.data.draft.original,'Independent original.');
+});
 test('login rate limit rejects repeated guesses',async()=>{
  let last;
  for(let i=0;i<35;i++)last=await send(auth,{code:'invalid-guess'});

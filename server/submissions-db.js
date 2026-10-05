@@ -291,6 +291,7 @@ export async function authenticateStaffCode(rawCode) {
 
   for (const row of rows) {
     if (await passwordMatches(code, row)) {
+      let verifiedHash = row.code_hash;
       if (!row.code_hash.startsWith('scrypt:')) {
         const salt = randomBytes(16).toString('hex');
         const hash = await passwordHash(code, salt);
@@ -298,8 +299,10 @@ export async function authenticateStaffCode(rawCode) {
           WHERE teacher_id=${row.teacher_id} AND code_hash=${row.code_hash} AND active=TRUE RETURNING teacher_id`;
         // Never authenticate a credential that was concurrently revoked.
         if (!upgraded.length) return null;
+        verifiedHash = hash;
       }
       return {
+        credentialHash: verifiedHash,
         role: row.role,
         teacherId: row.teacher_id,
         slug: row.slug,
