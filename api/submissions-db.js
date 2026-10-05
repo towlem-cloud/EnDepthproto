@@ -347,6 +347,50 @@ export async function authenticateStaffCode(rawCode) {
     }
   }
 
+  // Recovery path: environment teacher codes remain authoritative recovery
+  // credentials. If a stored hash ever drifts from the configured code, repair
+  // that teacher record in place without touching assignments or submissions.
+  const recoverySeeds = [
+    {
+      slug: "morgan-towle",
+      code: cleanString(process.env.ENDEPTH_TEACHER_CODE, 300),
+    },
+    {
+      slug: "teacher-two",
+      code: cleanString(process.env.ENDEPTH_SECOND_TEACHER_CODE, 300),
+    },
+  ];
+
+  for (const seed of recoverySeeds) {
+    if (!seed.code || !safeEqual(code, seed.code)) continue;
+
+    const teacherRows = await sql`
+      SELECT teacher_id, slug, display_name, email, active
+      FROM endepth_teachers
+      WHERE slug = ${seed.slug}
+      LIMIT 1
+    `;
+    const teacher = teacherRows[0];
+    if (!teacher) continue;
+
+    const salt = randomBytes(16).toString("hex");
+    const codeHash = hashTeacherCode(code, salt);
+    await sql`
+      UPDATE endepth_teachers
+      SET code_salt = ${salt}, code_hash = ${codeHash}, active = TRUE,
+          updated_at = NOW()
+      WHERE teacher_id = ${teacher.teacher_id}
+    `;
+
+    return {
+      role: "teacher",
+      teacherId: teacher.teacher_id,
+      slug: teacher.slug,
+      displayName: teacher.display_name,
+      email: teacher.email,
+    };
+  }
+
   return null;
 }
 
