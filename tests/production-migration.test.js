@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
+import reviewedSchema from "../lib/department-schema.js";
+import { migrationSql } from "../lib/department-migration.js";
 
 const migration = readFileSync(new URL("../migrations/department.sql", import.meta.url), "utf8");
 const production = readFileSync(new URL("../scripts/migrate-department-production.sql", import.meta.url), "utf8");
@@ -74,10 +76,10 @@ async function snapshot(db, tableNames = tables) {
 }
 
 function receipt(results) {
-  const rows = results.find((result) => result.rows?.[0]?.records_preserved !== undefined)?.rows;
+  const rows = results.find((result) => result.rows?.[0]?.preserved !== undefined)?.rows;
   assert.ok(rows?.length, "Migration returns a preservation receipt");
   for (const row of rows) {
-    assert.equal(row.records_preserved, true, row.table_name);
+    assert.equal(row.preserved, true, row.table_name);
     assert.equal(row.before_count, row.after_count, row.table_name);
     assert.equal(row.schema_version, 1);
   }
@@ -89,11 +91,12 @@ async function expectRollback(db, sql, pattern) {
   await db.exec("ROLLBACK;");
 }
 
-test("production helper embeds exactly the reviewed migration and applies it once", () => {
-  const embedded = production.split("EXECUTE $department_production_migration$\n")[1]
-    ?.split("$department_production_migration$;")[0];
-  assert.equal(embedded, migration);
-  assert.equal(production.match(/EXECUTE \$department_production_migration\$/g)?.length, 1);
+test("production artifact contains the shared one-pass guard and exactly the reviewed schema", () => {
+  assert.equal(reviewedSchema, migration);
+  const start = production.indexOf("BEGIN;\n");
+  assert.ok(start > 0, "Production safety instructions precede an explicit transaction");
+  assert.equal(production.slice(start), migrationSql());
+  assert.equal(production.match(/DO \$department_migration_verify\$/g)?.length, 1);
 });
 
 test("production first run preserves pilot records, credentials, links, disabled state and quota", async () => {
@@ -119,7 +122,7 @@ test("production first run preserves pilot records, credentials, links, disabled
     for (const name of tables.slice(4)) {
       assert.equal((await db.query(`SELECT COUNT(*)::INTEGER AS count FROM ${name}`)).rows[0].count, 0);
     }
-    assert.equal((await db.query("SELECT to_regclass('pg_temp.department_production_before') AS snapshot")).rows[0].snapshot, null);
+    assert.equal((await db.query("SELECT to_regclass('pg_temp.department_migration_before') AS snapshot")).rows[0].snapshot, null);
   } finally {
     await db.close();
   }
@@ -146,7 +149,7 @@ test("production rerun preserves all existing department data and authentication
         VALUES ('assignment-existing','synthetic@example.invalid','depth-request-existing','preserved-depth-hash','preserved-depth-lease','complete','{"text":"Preserved reply"}');
     `);
     const before = await snapshot(db);
-    assert.equal(receipt(await db.exec(production)).length, tables.length);
+    assert.equal(receipt(await db.exec(production)).length, tables.length + 1);
     assert.deepEqual(await snapshot(db), before);
   } finally {
     await db.close();
@@ -157,7 +160,7 @@ test("production preservation failure rolls back credential mutation and all add
   const db = await pilot();
   try {
     const before = await snapshot(db, tables.slice(0, 4));
-    const corrupt = production.replace("$department_production_migration$;", "$department_production_migration$;\nUPDATE endepth_teachers SET code_hash='CORRUPTED';");
+    const corrupt = production.replace("DO $department_migration_verify$", "UPDATE endepth_teachers SET code_hash='CORRUPTED';\nDO $department_migration_verify$");
     await expectRollback(db, corrupt, /did not preserve existing rows in endepth_teachers/);
     assert.deepEqual(await snapshot(db, tables.slice(0, 4)), before);
     assert.equal((await db.query("SELECT to_regclass('public.department_schema_version') AS marker")).rows[0].marker, null);
@@ -172,7 +175,7 @@ test("production rerun detects changes to existing authentication state instead 
   try {
     await db.exec(production);
     const before = await snapshot(db);
-    const corrupt = production.replace("$department_production_migration$;", "$department_production_migration$;\nUPDATE endepth_teachers SET credential_version=99;");
+    const corrupt = production.replace("DO $department_migration_verify$", "UPDATE endepth_teachers SET credential_version=99;\nDO $department_migration_verify$");
     await expectRollback(db, corrupt, /did not preserve existing rows in endepth_teachers/);
     assert.deepEqual(await snapshot(db), before);
   } finally {
@@ -188,8 +191,22 @@ test("production helper fails closed for missing pilot columns and unknown schem
     assert.equal((await db.query("SELECT to_regclass('public.department_schema_version') AS marker")).rows[0].marker, null);
     await db.exec("ALTER TABLE endepth_teachers ADD COLUMN code_salt TEXT NOT NULL DEFAULT 'preserved';");
     await db.exec("CREATE TABLE department_schema_version(id INTEGER PRIMARY KEY,version INTEGER NOT NULL); INSERT INTO department_schema_version VALUES(1,2);");
-    await expectRollback(db, production, /Unexpected department schema version/);
+    await expectRollback(db, production, /did not preserve existing rows in department_schema_version/);
     assert.deepEqual((await db.query("SELECT * FROM department_schema_version")).rows, [{id: 1, version: 2}]);
+  } finally {
+    await db.close();
+  }
+});
+
+test("production helper rejects incompatible existing quota columns without changing rows or schema", async () => {
+  const db = await pilot();
+  try {
+    await db.exec("ALTER TABLE endepth_coach_usage DROP COLUMN in_flight_count;");
+    const before = await snapshot(db, tables.slice(0, 4));
+    await expectRollback(db, production, /Required existing quota column in_flight_count is missing/);
+    assert.deepEqual(await snapshot(db, tables.slice(0, 4)), before);
+    assert.equal((await db.query("SELECT to_regclass('public.department_schema_version') AS marker")).rows[0].marker, null);
+    assert.equal((await db.query("SELECT COUNT(*)::INTEGER AS count FROM information_schema.columns WHERE table_name='endepth_teachers' AND column_name='auth_scheme'")).rows[0].count, 0);
   } finally {
     await db.close();
   }

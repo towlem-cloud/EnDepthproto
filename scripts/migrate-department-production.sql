@@ -7,45 +7,48 @@
 -- First validate the reviewed migration on an isolated branch of production.
 -- Use the Neon SQL Editor with main explicitly selected, or a direct
 -- (non-pooled) connection to that verified branch and existing database.
--- Execute this complete file once. It applies migrations/department.sql in
--- one transaction with row-preservation assertions, then commits the result.
+-- Execute this complete file once. It applies the reviewed department schema
+-- in one transaction with row-preservation assertions, then commits the result.
 -- Existing records and credentials are copied only into temporary tables.
 -- No account seeding, teacher activation, credential rotation, or quota reset
 -- runs. Any failed assertion aborts the transaction; issue ROLLBACK before
 -- retrying. An error means the rollout remains pending: do not bypass it.
--- Review the SELECT result: all records_preserved values must be true, all
+-- Review the SELECT result: all preserved values must be true, all
 -- before_count/after_count pairs equal, and every schema_version must be 1.
 -- Confirm COMMIT succeeded before deploying the department application.
 -- Keep the recovery branch until hosted authentication and both tools pass.
 
 BEGIN;
+
 SET LOCAL lock_timeout = '5s';
+
 SET LOCAL statement_timeout = '60s';
+
 SET LOCAL TIME ZONE 'UTC';
+
 SET LOCAL search_path = public;
 
-CREATE TEMP TABLE department_production_before (
+CREATE TEMP TABLE department_migration_before (
   table_name TEXT NOT NULL,
   row_data JSONB NOT NULL
 ) ON COMMIT DROP;
-CREATE TEMP TABLE department_production_validation (
+
+CREATE TEMP TABLE department_migration_tables (
   table_name TEXT PRIMARY KEY,
-  excluded_keys TEXT[] NOT NULL,
+  original_columns TEXT[] NOT NULL,
   before_count BIGINT NOT NULL,
   after_count BIGINT,
-  records_preserved BOOLEAN
+  preserved BOOLEAN
 ) ON COMMIT DROP;
 
-DO $department_production_validation$
+DO $department_migration_prepare$
 DECLARE
   required RECORD;
   required_column TEXT;
   observed RECORD;
-  excluded_keys TEXT[];
-  current_count BIGINT;
-  preserved BOOLEAN;
+  original_columns TEXT[];
 BEGIN
-  -- Confirm the existing pilot schema. Do not create or seed pilot accounts.
+  -- Require the installed pilot schema; never prepare or seed pilot accounts.
   FOR required IN
     SELECT * FROM (VALUES
       ('endepth_teachers', ARRAY[
@@ -86,29 +89,20 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  -- Block concurrent changes before capturing any existing rows.
-  -- Optional tables are captured even when empty; absent tables may be added.
+  -- Capture every existing public application table, including future tables.
+  -- Locks prevent concurrent record changes between capture and comparison.
   FOR observed IN
-    SELECT table_name FROM unnest(ARRAY[
-      'endepth_teachers','endepth_assignments','endepth_submissions',
-      'endepth_coach_usage','endepth_coach_requests',
-      'department_admin','department_sessions','department_rate_limits',
-      'department_schema_version','enscribe_assignments','enscribe_students',
-      'enscribe_revisions','enscribe_checks'
-    ]::TEXT[]) AS existing(table_name)
-    WHERE to_regclass(format('public.%I', table_name)) IS NOT NULL
-    ORDER BY table_name
+    SELECT c.relname AS table_name
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+    ORDER BY c.relname
   LOOP
     EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE',
       observed.table_name);
   END LOOP;
 
-  IF to_regclass('public.department_schema_version') IS NOT NULL THEN
-    IF EXISTS (SELECT 1 FROM public.department_schema_version WHERE version <> 1) THEN
-      RAISE EXCEPTION 'Unexpected department schema version; migration not applied.';
-    END IF;
-  END IF;
-
+  -- CREATE TABLE IF NOT EXISTS cannot repair an older or malformed quota
+  -- table. Preserve its existing counters and reject incompatible columns.
   IF to_regclass('public.endepth_coach_usage') IS NOT NULL THEN
     FOREACH required_column IN ARRAY ARRAY[
       'assignment_id','student_email','successful_count','in_flight_count','updated_at'
@@ -125,67 +119,56 @@ BEGIN
   END IF;
 
   FOR observed IN
-    SELECT table_name FROM unnest(ARRAY[
-      'endepth_teachers','endepth_assignments','endepth_submissions',
-      'endepth_coach_usage','endepth_coach_requests',
-      'department_admin','department_sessions','department_rate_limits',
-      'enscribe_assignments','enscribe_students','enscribe_revisions','enscribe_checks'
-    ]::TEXT[]) AS existing(table_name)
-    WHERE to_regclass(format('public.%I', table_name)) IS NOT NULL
-    ORDER BY table_name
+    SELECT c.relname AS table_name
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+    ORDER BY c.relname
   LOOP
-    excluded_keys := CASE observed.table_name
-      WHEN 'endepth_teachers' THEN ARRAY[
-        'auth_scheme','credential_version','activation_state'
-      ]::TEXT[]
-      WHEN 'endepth_assignments' THEN ARRAY['sandbox']::TEXT[]
-      WHEN 'enscribe_checks' THEN ARRAY['lease']::TEXT[]
-      ELSE ARRAY[]::TEXT[]
-    END;
-    -- Ignore only columns this migration newly adds. Existing values in those
-    -- columns are part of the snapshot, including existing authentication state.
-    SELECT COALESCE(array_agg(candidate.key), ARRAY[]::TEXT[])
-      INTO excluded_keys
-    FROM unnest(excluded_keys) AS candidate(key)
-    WHERE NOT EXISTS (
-      SELECT 1 FROM information_schema.columns c
-      WHERE c.table_schema = 'public' AND c.table_name = observed.table_name
-        AND c.column_name = candidate.key
-    );
+    SELECT array_agg(c.column_name::TEXT ORDER BY c.ordinal_position)
+      INTO original_columns
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public' AND c.table_name = observed.table_name;
     EXECUTE format(
-      'INSERT INTO pg_temp.department_production_before(table_name,row_data)
-       SELECT $1,to_jsonb(t)-$2 FROM public.%I t', observed.table_name
-    ) USING observed.table_name, excluded_keys;
-    INSERT INTO pg_temp.department_production_validation(
-      table_name, excluded_keys, before_count
-    ) SELECT observed.table_name, excluded_keys, count(*)
-      FROM pg_temp.department_production_before b
+      'INSERT INTO pg_temp.department_migration_before(table_name,row_data)
+       SELECT $1,to_jsonb(t) FROM public.%I t', observed.table_name
+    ) USING observed.table_name;
+    INSERT INTO pg_temp.department_migration_tables(
+      table_name, original_columns, before_count
+    ) SELECT observed.table_name, original_columns, count(*)
+      FROM pg_temp.department_migration_before b
       WHERE b.table_name = observed.table_name;
   END LOOP;
+END;
+$department_migration_prepare$;
 
-  -- Apply the reviewed migration once; a later rerun is safe and verified.
-  -- BEGIN exact reviewed migrations/department.sql (no pilot seed routine).
-  EXECUTE $department_production_migration$
 CREATE TABLE IF NOT EXISTS endepth_coach_usage (
  assignment_id TEXT NOT NULL,student_email TEXT NOT NULL,successful_count INTEGER NOT NULL DEFAULT 0,
  in_flight_count INTEGER NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(assignment_id,student_email)
 );
+
 -- Additive only. Run against an isolated database first, then the existing database.
 ALTER TABLE endepth_teachers ADD COLUMN IF NOT EXISTS auth_scheme TEXT NOT NULL DEFAULT 'legacy-sha256';
+
 ALTER TABLE endepth_teachers ADD COLUMN IF NOT EXISTS credential_version INTEGER NOT NULL DEFAULT 1;
+
 ALTER TABLE endepth_teachers ADD COLUMN IF NOT EXISTS activation_state TEXT NOT NULL DEFAULT 'active';
+
 UPDATE endepth_teachers SET activation_state='disabled' WHERE active=FALSE AND activation_state='active';
+
 CREATE TABLE IF NOT EXISTS department_admin (
  id INTEGER PRIMARY KEY CHECK (id=1), code_hash TEXT NOT NULL, code_salt TEXT NOT NULL,
  auth_scheme TEXT NOT NULL DEFAULT 'scrypt', credential_version INTEGER NOT NULL DEFAULT 1
 );
+
 CREATE TABLE IF NOT EXISTS department_sessions (
  token_hash TEXT PRIMARY KEY, teacher_id TEXT, role TEXT NOT NULL,
  credential_version INTEGER NOT NULL, expires_at TIMESTAMPTZ NOT NULL
 );
+
 CREATE TABLE IF NOT EXISTS department_rate_limits (
  bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, expires_at TIMESTAMPTZ NOT NULL
 );
+
 CREATE TABLE IF NOT EXISTS enscribe_assignments (
  id TEXT PRIMARY KEY, public_slug TEXT UNIQUE NOT NULL, teacher_id TEXT NOT NULL REFERENCES endepth_teachers(teacher_id),
  title TEXT NOT NULL, course TEXT NOT NULL, section TEXT NOT NULL, prompt TEXT NOT NULL,
@@ -194,6 +177,7 @@ CREATE TABLE IF NOT EXISTS enscribe_assignments (
  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','open','closed')),
  sandbox BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
 CREATE TABLE IF NOT EXISTS enscribe_students (
  id TEXT PRIMARY KEY, assignment_id TEXT NOT NULL REFERENCES enscribe_assignments(id),
  token_hash TEXT UNIQUE NOT NULL, first_name TEXT NOT NULL, last_name TEXT NOT NULL, email TEXT NOT NULL,
@@ -202,17 +186,20 @@ CREATE TABLE IF NOT EXISTS enscribe_students (
  successful_checks INTEGER NOT NULL DEFAULT 0 CHECK(successful_checks BETWEEN 0 AND 4),
  in_flight INTEGER NOT NULL DEFAULT 0 CHECK(in_flight BETWEEN 0 AND 1)
 );
+
 CREATE TABLE IF NOT EXISTS enscribe_revisions (
  id TEXT PRIMARY KEY, student_id TEXT NOT NULL REFERENCES enscribe_students(id),
  version INTEGER NOT NULL, draft TEXT NOT NULL, explanation TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  UNIQUE(student_id,version)
 );
+
 CREATE TABLE IF NOT EXISTS enscribe_checks (
  student_id TEXT NOT NULL REFERENCES enscribe_students(id), request_id TEXT NOT NULL,
  state TEXT NOT NULL CHECK(state IN ('pending','complete','failed','withheld')),
  request_hash TEXT NOT NULL, academic JSONB NOT NULL, reply TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  PRIMARY KEY(student_id,request_id)
 );
+
 CREATE OR REPLACE FUNCTION enscribe_protect_original() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  IF OLD.original IS NOT NULL AND NEW.original IS DISTINCT FROM OLD.original THEN
@@ -220,15 +207,20 @@ BEGIN
  END IF;
  RETURN NEW;
 END; $$;
+
 DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='enscribe_original_immutable' AND NOT tgisinternal) THEN
   CREATE TRIGGER enscribe_original_immutable BEFORE UPDATE ON enscribe_students
   FOR EACH ROW EXECUTE FUNCTION enscribe_protect_original();
  END IF;
 END $$;
+
 CREATE INDEX IF NOT EXISTS enscribe_assignments_owner ON enscribe_assignments(teacher_id);
+
 CREATE INDEX IF NOT EXISTS enscribe_students_assignment ON enscribe_students(assignment_id);
+
 ALTER TABLE enscribe_checks ADD COLUMN IF NOT EXISTS lease TEXT NOT NULL DEFAULT '';
+
 CREATE OR REPLACE FUNCTION enscribe_save(p_id TEXT,p_token TEXT,p_version INTEGER,p_draft TEXT,p_explanation TEXT,p_reflection TEXT,p_submit BOOLEAN)
 RETURNS SETOF enscribe_students LANGUAGE plpgsql AS $$
 DECLARE s enscribe_students; a enscribe_assignments;
@@ -248,6 +240,7 @@ BEGIN
  VALUES(p_id||':'||(s.version+1),p_id,s.version+1,p_draft,p_explanation);
  RETURN QUERY SELECT * FROM enscribe_students WHERE id=p_id;
 END; $$;
+
 CREATE OR REPLACE FUNCTION enscribe_reserve(p_id TEXT,p_token TEXT,p_request TEXT,p_hash TEXT,p_academic JSONB,p_lease TEXT)
 RETURNS TABLE(result TEXT,cached TEXT) LANGUAGE plpgsql AS $$
 DECLARE s enscribe_students; a enscribe_assignments; c enscribe_checks;
@@ -271,6 +264,7 @@ BEGIN
  ON CONFLICT(student_id,request_id) DO UPDATE SET state='pending',lease=p_lease,created_at=NOW();
  RETURN QUERY SELECT 'reserved'::text,NULL::text;
 END; $$;
+
 CREATE OR REPLACE FUNCTION enscribe_finish(p_id TEXT,p_request TEXT,p_state TEXT,p_reply TEXT,p_lease TEXT)
 RETURNS BOOLEAN LANGUAGE plpgsql AS $$
 DECLARE s enscribe_students; c enscribe_checks;
@@ -284,12 +278,14 @@ BEGIN
 END; $$;
 
 ALTER TABLE endepth_assignments ADD COLUMN IF NOT EXISTS sandbox BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS endepth_coach_requests (
  assignment_id TEXT NOT NULL, usage_key TEXT NOT NULL, request_id TEXT NOT NULL,
  request_hash TEXT NOT NULL, lease TEXT NOT NULL, state TEXT NOT NULL,
  reply JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  PRIMARY KEY(assignment_id,usage_key,request_id)
 );
+
 CREATE OR REPLACE FUNCTION department_depth_reserve(p_assignment TEXT,p_key TEXT,p_request TEXT,p_hash TEXT,p_lease TEXT)
 RETURNS TABLE(result TEXT,cached JSONB,successful INTEGER) LANGUAGE plpgsql AS $$
 DECLARE a endepth_assignments; u endepth_coach_usage; c endepth_coach_requests;
@@ -311,6 +307,7 @@ BEGIN
  ON CONFLICT(assignment_id,usage_key,request_id) DO UPDATE SET lease=p_lease,state='pending',created_at=NOW();
  RETURN QUERY SELECT 'reserved'::TEXT,NULL::JSONB,u.successful_count;
 END; $$;
+
 CREATE OR REPLACE FUNCTION department_depth_finish(p_assignment TEXT,p_key TEXT,p_request TEXT,p_lease TEXT,p_reply JSONB)
 RETURNS INTEGER LANGUAGE plpgsql AS $$
 DECLARE u endepth_coach_usage; c endepth_coach_requests; n INTEGER;
@@ -339,18 +336,42 @@ BEGIN
 END; $$;
 
 CREATE TABLE IF NOT EXISTS department_schema_version(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL);
-INSERT INTO department_schema_version(id,version) VALUES(1,1) ON CONFLICT(id) DO UPDATE SET version=1;
-$department_production_migration$;
-  -- END exact reviewed migrations/department.sql.
 
+INSERT INTO department_schema_version(id,version) VALUES(1,1) ON CONFLICT(id) DO UPDATE SET version=1;
+
+DO $department_migration_verify$
+DECLARE
+  observed RECORD;
+  current_count BIGINT;
+  preserved BOOLEAN;
+BEGIN
   FOR observed IN
-    SELECT * FROM pg_temp.department_production_validation ORDER BY table_name
+    SELECT * FROM pg_temp.department_migration_tables ORDER BY table_name
   LOOP
-    EXECUTE format($department_production_comparison$
+    IF to_regclass(format('public.%I', observed.table_name)) IS NULL THEN
+      RAISE EXCEPTION 'Existing application table % was removed; transaction aborted.',
+        observed.table_name;
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM unnest(observed.original_columns) AS original(column_name)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM information_schema.columns c
+        WHERE c.table_schema = 'public' AND c.table_name = observed.table_name
+          AND c.column_name = original.column_name
+      )
+    ) THEN
+      RAISE EXCEPTION 'Existing application column in % was removed; transaction aborted.',
+        observed.table_name;
+    END IF;
+    EXECUTE format($department_migration_comparison$
       WITH current_rows AS MATERIALIZED (
-        SELECT to_jsonb(t)-$1 AS row_data FROM public.%I t
+        SELECT (
+          SELECT jsonb_object_agg(j.key,j.value)
+          FROM jsonb_each(to_jsonb(t)) j
+          WHERE j.key = ANY($1)
+        ) AS row_data FROM public.%I t
       ), before_rows AS MATERIALIZED (
-        SELECT row_data FROM pg_temp.department_production_before
+        SELECT row_data FROM pg_temp.department_migration_before
         WHERE table_name = $2
       ), differences AS (
         (SELECT row_data FROM current_rows
@@ -361,38 +382,29 @@ $department_production_migration$;
       )
       SELECT (SELECT count(*) FROM current_rows),
              NOT EXISTS (SELECT 1 FROM differences)
-    $department_production_comparison$, observed.table_name)
+    $department_migration_comparison$, observed.table_name)
       INTO current_count, preserved
-      USING observed.excluded_keys, observed.table_name;
+      USING observed.original_columns, observed.table_name;
     IF NOT preserved OR current_count <> observed.before_count THEN
       RAISE EXCEPTION 'Migration did not preserve existing rows in %; transaction aborted.',
         observed.table_name;
     END IF;
-    UPDATE pg_temp.department_production_validation
-    SET after_count = current_count, records_preserved = preserved
+    UPDATE pg_temp.department_migration_tables
+    SET after_count = current_count, preserved = TRUE
     WHERE table_name = observed.table_name;
   END LOOP;
-
   IF NOT EXISTS (
     SELECT 1 FROM public.department_schema_version WHERE id = 1 AND version = 1
   ) THEN
     RAISE EXCEPTION 'Department schema marker missing; transaction aborted.';
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM public.endepth_teachers
-    WHERE active = FALSE AND activation_state = 'active'
-  ) THEN
-    RAISE EXCEPTION 'Disabled pilot account state was not retained; transaction aborted.';
-  END IF;
 END;
-$department_production_validation$;
+$department_migration_verify$;
 
--- The only result set contains counts, preservation booleans, and the version.
--- Snapshots containing records/credentials disappear automatically on COMMIT.
-SELECT table_name, before_count, after_count,
-       records_preserved,
+SELECT table_name, before_count, after_count, preserved,
        (SELECT version FROM public.department_schema_version WHERE id = 1)
          AS schema_version
-FROM pg_temp.department_production_validation
+FROM pg_temp.department_migration_tables
 ORDER BY table_name;
+
 COMMIT;
