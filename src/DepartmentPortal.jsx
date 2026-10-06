@@ -50,6 +50,7 @@ export default function DepartmentPortal() {
     try {
       await fn();
     } catch (e) {
+      if (e.status === 401) clearStaff();
       setError(e.message);
     } finally {
       setBusy(false);
@@ -58,6 +59,26 @@ export default function DepartmentPortal() {
   async function refresh(s = staff) {
     setAssignments((await post("writing-list")).assignments);
     if (s?.role === "admin") setTeachers((await post("accounts")).teachers);
+  }
+  function sameStaff(nextStaff) {
+    return staff?.role === nextStaff.role &&
+      staff?.teacherId === nextStaff.teacherId;
+  }
+  async function adoptStaff(nextStaff) {
+    if (sameStaff(nextStaff)) return;
+    const currentModule = module;
+    clearStaff();
+    setStaff(nextStaff);
+    setModule(currentModule);
+    await refresh(nextStaff);
+  }
+  async function switchModule(nextModule) {
+    await run(async () => {
+      const d = await post("session", {}, "/api/staff-auth");
+      await adoptStaff(d.staff);
+      setModule(nextModule);
+      setOneTime(null);
+    });
   }
   useEffect(() => {
     run(async () => {
@@ -160,20 +181,20 @@ export default function DepartmentPortal() {
             <strong>{staff.displayName}</strong>
             <button
               aria-pressed={module === "desk"}
-              onClick={() => {
-                setModule("desk");
-                setOneTime(null);
-              }}
+              disabled={busy}
+              onClick={() => switchModule("desk")}
             >
               EnScribe Writing Studio
             </button>
-            <button aria-pressed={module === "depth"} onClick={() => {
-              setModule("depth");
-              setOneTime(null);
-            }}>
+            <button
+              aria-pressed={module === "depth"}
+              disabled={busy}
+              onClick={() => switchModule("depth")}
+            >
               EnDepth Teacher Desk
             </button>
             <button
+              disabled={busy}
               onClick={() =>
                 run(async () => {
                   await post("logout", {}, "/api/staff-auth");
@@ -190,7 +211,13 @@ export default function DepartmentPortal() {
                 EnDepth assignments and records retain their existing student
                 URLs.
               </p>
-              <StaffPortal onLock={clearStaff} />
+              <StaffPortal
+                key={staff.role + ":" + (staff.teacherId || "admin")}
+                onLock={clearStaff}
+                onStaff={(nextStaff) => {
+                  if (!sameStaff(nextStaff)) run(() => adoptStaff(nextStaff));
+                }}
+              />
             </>
           ) : (
             <>

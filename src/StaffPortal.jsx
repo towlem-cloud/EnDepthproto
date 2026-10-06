@@ -34,7 +34,7 @@ function csvCell(value) {
   return `"${String(value ?? "").replace(/^[\s]*[=+@-]/, "'$&").replace(/"/g, '""')}"`;
 }
 
-export default function StaffPortal({ onLock } = {}) {
+export default function StaffPortal({ onLock, onStaff } = {}) {
   const [code, setCode] = useState("");
   const [draftCode, setDraftCode] = useState("");
   const [staff, setStaff] = useState(null);
@@ -81,6 +81,7 @@ export default function StaffPortal({ onLock } = {}) {
       setDraftCode("");
       setStaff(data.staff);
       setTab("assignments");
+      onStaff?.(data.staff);
       await loadPortalData(cleanCode, data.staff);
     } catch (authError) {
       window.sessionStorage.removeItem(STAFF_CODE_KEY);
@@ -146,7 +147,15 @@ export default function StaffPortal({ onLock } = {}) {
 
   useEffect(() => {
     window.sessionStorage.removeItem(STAFF_CODE_KEY);
-    post("/api/staff-auth", {action:"session"}).then(async data=>{setStaff(data.staff);await loadPortalData("",data.staff);}).catch(()=>{});
+    post("/api/staff-auth", { action: "session" })
+      .then(async (data) => {
+        setStaff(data.staff);
+        onStaff?.(data.staff);
+        await loadPortalData("", data.staff);
+      })
+      .catch((sessionError) => {
+        if (sessionError.status === 401) onLock?.();
+      });
   }, []);
 
   const selectedAssignment =
@@ -374,7 +383,7 @@ export default function StaffPortal({ onLock } = {}) {
           <div className="portal-section-heading">
             <div>
               <div className="card-kicker">Database-backed assignments</div>
-              <h2>{staff.role === "admin" ? "All pilot assignments" : "Your pilot assignments"}</h2>
+              <h2>{staff.role === "admin" ? "All department assignments" : "Your department assignments"}</h2>
             </div>
             <button className="primary-button" type="button" onClick={() => startAssignment()}>
               Create assignment <Icon name="arrow" />
@@ -433,7 +442,7 @@ export default function StaffPortal({ onLock } = {}) {
             <div className="pilot-limits-row">
               <Pill tone="orange">4 live coach questions</Pill>
               <Pill tone="neutral">17-student section limit</Pill>
-              <span>Fixed for the first two-teacher pilot.</span>
+              <span>Fixed limits for each department assignment.</span>
             </div>
             <div className="portal-form-grid">
               {staff.role === "admin" ? (

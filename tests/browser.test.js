@@ -404,6 +404,78 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
       await sql`SELECT teacher_id,code_hash,active,activation_state,credential_version FROM endepth_teachers WHERE slug='morgan-towle'`,
       preservedTeacher,
     );
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.getByLabel("Individual teacher or administrator code").fill(
+      process.env.ENDEPTH_TEACHER_CODE,
+    );
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    const oldAssignment = page.locator(".assignment-grid > section").filter({
+      has: page.getByRole("heading", { name: "Synthetic browser assignment", exact: true }),
+    });
+    await oldAssignment.getByRole("button", {
+      name: "Students / import / access links", exact: true,
+    }).click();
+    await page.getByText(/fictional@example.invalid/).waitFor();
+    await sql`UPDATE department_sessions SET expires_at=NOW()-INTERVAL '1 minute' WHERE teacher_id=${preservedTeacher[0].teacher_id}`;
+    await page.getByRole("button", { name: "EnDepth Teacher Desk", exact: true }).click();
+    await page.getByRole("heading", { name: "Approved staff sign-in", exact: true }).waitFor();
+    assert.equal(await page.getByText(/fictional@example.invalid/).count(), 0);
+    assert.equal(await oldAssignment.count(), 0);
+    await page.getByLabel("Email (optional for existing codes)").fill("marksd@ensworth.com");
+    await page.getByLabel("Individual teacher or administrator code").fill(teacherCode);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.locator(".department-navigation strong").getByText("marksd@ensworth.com", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/fictional@example.invalid/).count(), 0);
+    assert.equal(await oldAssignment.count(), 0);
+    const secondTeacher = (await sql`SELECT teacher_id FROM endepth_teachers WHERE email='marksd@ensworth.com'`)[0];
+    let depthResponse = page.waitForResponse((response) =>
+      response.url().endsWith("/api/assignments") &&
+      response.request().postDataJSON()?.action === "list",
+    );
+    await page.getByRole("button", { name: "EnDepth Teacher Desk", exact: true }).click();
+    assert.equal((await (await depthResponse).json()).staff.teacherId, secondTeacher.teacher_id);
+    await page.locator(".staff-portal-banner").getByText("marksd@ensworth.com", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "EnScribe Writing Studio", exact: true }).click();
+    await page.getByRole("button", { name: "Create writing assignment", exact: true }).click();
+    await page.getByLabel("Title", { exact: true }).fill("Second teacher private assignment");
+    await page.getByLabel("Course", { exact: true }).fill("Fictional seminar");
+    await page.getByLabel("Section", { exact: true }).fill("Another section");
+    await page.getByLabel("Assignment prompt", { exact: true }).fill("Analyze a fictional garden independently.");
+    const writingResponse = page.waitForResponse((response) =>
+      response.url().endsWith("/api/department") &&
+      response.request().postDataJSON()?.action === "writing-save",
+    );
+    await page.getByRole("button", { name: "Save assignment", exact: true }).click();
+    assert.equal((await (await writingResponse).json()).assignment.teacher_id, secondTeacher.teacher_id);
+    await page.getByRole("heading", { name: "Second teacher private assignment", exact: true }).waitFor();
+    assert.equal(await oldAssignment.count(), 0);
+    assert.equal(await page.getByText(/fictional@example.invalid/).count(), 0);
+    // Another tab can replace the shared cookie while this desk still has data.
+    await page.evaluate(async (code) => {
+      const response = await fetch("/api/staff-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "login", code }),
+      });
+      if (!response.ok) throw new Error("Synthetic identity switch failed");
+    }, process.env.ENDEPTH_TEACHER_CODE);
+    await page.getByRole("button", { name: "EnDepth Teacher Desk", exact: true }).click();
+    await page.locator(".department-navigation strong").getByText("Morgan Towle", { exact: true }).waitFor();
+    await page.locator(".staff-portal-banner").getByText("Morgan Towle", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "EnScribe Writing Studio", exact: true }).click();
+    await oldAssignment.waitFor();
+    assert.equal(await page.getByRole("heading", {
+      name: "Second teacher private assignment", exact: true,
+    }).count(), 0);
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.goto("https://synthetic.test/");
+    await page.getByRole("button", { name: "Teacher Portal", exact: true }).click();
+    await page.getByLabel("Teacher or admin code").fill(teacherCode);
+    await page.getByRole("button", { name: "Open Teacher Portal", exact: true }).click();
+    await page.getByRole("heading", {
+      name: "Build assignments once. Share one student link.", exact: true,
+    }).waitFor();
+    await page.locator(".staff-portal-banner").getByText("marksd@ensworth.com", { exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();
