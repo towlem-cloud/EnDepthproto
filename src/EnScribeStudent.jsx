@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { post } from "./departmentApi.js";
 const foci = [
   "Thesis/inquiry",
@@ -23,42 +23,88 @@ export default function EnScribeStudent({ studentId }) {
     [pending, setPending] = useState(null);
   const [draftView, setDraftView] = useState("working"),
     [selectedPassage, setSelectedPassage] = useState("");
+  const busyRef = useRef(false), epochRef = useRef(0), dataRef = useRef(null);
+  dataRef.current = data;
+  function clearWriting() {
+    epochRef.current += 1;
+    busyRef.current = false;
+    setBusy(false); setData(null); setDraft(""); setReflection("");
+    setExplanation(""); setFocus(foci[0]); setGoal(""); setPassage("");
+    setTried(""); setQuestion(""); setPending(null); setNotice("");
+    setDraftView("working"); setSelectedPassage("");
+  }
   async function run(fn) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const epoch = epochRef.current;
     setBusy(true);
     setError("");
     try {
-      await fn();
+      await fn(epoch);
     } catch (e) {
+      if (epoch !== epochRef.current) return;
+      if (e.status === 401 || e.status === 403) clearWriting();
       setError(e.message);
     } finally {
-      setBusy(false);
+      if (epoch === epochRef.current) { busyRef.current = false; setBusy(false); }
     }
   }
-  function load(d) {
+  function load(d, epoch = epochRef.current) {
+    if (epoch !== epochRef.current) return;
     setData(d);
     setDraft(d.student.working);
     setReflection(d.student.reflection || "");
     setSelectedPassage("");
   }
-  async function refresh() {
-    load(await post("student-read", { studentId }));
+  async function refresh(epoch = epochRef.current) {
+    load(await post("student-read", { studentId }), epoch);
   }
   useEffect(() => {
     const raw = new URLSearchParams(location.hash.slice(1)).get("access");
     // Private capability is never kept in browser storage or query URLs.
     if (raw)
       history.replaceState(null, "", location.pathname + location.search);
-    run(async () =>
+    run(async (epoch) =>
       load(
         await post(raw ? "student-enter" : "student-read", {
           studentId,
           ...(raw ? { token: raw } : {}),
-        }),
+        }), epoch,
       ),
     );
   }, [studentId]);
+  useEffect(() => {
+    async function recheckSession() {
+      if (!dataRef.current) return;
+      const epoch = epochRef.current;
+      try { await post("student-read", { studentId }); }
+      catch (failure) {
+        if (epoch !== epochRef.current) return;
+        if (failure.status === 401 || failure.status === 403) clearWriting();
+        setError(failure.message);
+      }
+    }
+    window.addEventListener("focus", recheckSession);
+    return () => window.removeEventListener("focus", recheckSession);
+  }, [studentId]);
+  useEffect(() => {
+    function warn(event) {
+      if (data && (draft !== data.student.working || reflection !== (data.student.reflection || "") || explanation.trim())) { event.preventDefault(); event.returnValue = ""; }
+    }
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [data, draft, reflection, explanation]);
+  async function signOut() {
+    if (data && (draft !== data.student.working || reflection !== (data.student.reflection || "") || explanation.trim()) && !window.confirm("You have unsaved changes. Sign out and discard them?")) return;
+    await run(async (epoch) => {
+      await post("student-logout", { studentId });
+      if (epoch !== epochRef.current) return;
+      clearWriting(); setError("");
+      setNotice("Signed out. To return, open the private student link from your teacher.");
+    });
+  }
   async function save(submit = false) {
-    await run(async () => {
+    await run(async (epoch) => {
       const d = await post("student-save", {
         studentId,
         version: data.student.version,
@@ -67,7 +113,8 @@ export default function EnScribeStudent({ studentId }) {
         reflection,
         submit,
       });
-      load({ ...data, ...d });
+      if (epoch !== epochRef.current) return;
+      load({ ...data, ...d }, epoch);
       setExplanation("");
       setNotice(
         submit
@@ -78,7 +125,7 @@ export default function EnScribeStudent({ studentId }) {
     });
   }
   async function coach() {
-    await run(async () => {
+    await run(async (epoch) => {
       if (draft !== data.student.working)
         throw new Error("Save your revision before requesting a check.");
       // Keep the exact request on retry; changing the prompt requires a fresh request.
@@ -101,13 +148,14 @@ export default function EnScribeStudent({ studentId }) {
         if (error.status === 400) setPending(null);
         throw error;
       }
+      if (epoch !== epochRef.current) return;
       setNotice(
         result.withheld
           ? result.message
           : "Live diagnostic feedback received. Make your own revision; explain your decision.",
       );
       setPending(null);
-      await refresh();
+      await refresh(epoch);
     });
   }
   if (!data)
@@ -116,8 +164,9 @@ export default function EnScribeStudent({ studentId }) {
         <StudioHeader />
         <div className="department-body">
           <h1>EnScribe Writing Studio</h1>
-          <p>Opening your private workspace…</p>
+          <p>{busy ? "Opening your private workspace…" : "Open the private student link provided by your teacher to access your writing."}</p>
           {error && <p role="alert">{error}</p>}
+          {notice && <p role="status">{notice}</p>}
         </div>
       </main>
     );
@@ -131,6 +180,7 @@ export default function EnScribeStudent({ studentId }) {
     <main className="department">
       <StudioHeader />
       <div className="department-body">
+        <button className="department-secondary" disabled={busy} onClick={signOut}>Sign out of my writing workspace</button>
         <div className="department-page-heading">
           <div>
             <p className="department-eyebrow">The writer does the thinking</p>

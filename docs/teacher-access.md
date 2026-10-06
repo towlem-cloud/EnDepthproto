@@ -30,6 +30,8 @@ Review students' preserved originals, drafts, revision explanations, coaching hi
 
 Select **EnDepth Teacher Desk** using the same sign-in. Create and manage discussion-preparation assignments, share their student assignment links, and review submissions. Existing assignments and student links keep their URLs.
 
+After saving an assignment, use **Individual student access** in its editor to issue a private code for each student. Deliver that code with the assignment link privately. Students enter the code, work under the identity their teacher issued, and sign out when finished. Reissuing a code revokes earlier access and keeps existing submissions. An email or the shared pilot code cannot overwrite someone else's preparation.
+
 ## Try the tools before using a class assignment
 
 **Try EnScribe — fictional example** and **Try EnDepth — fictional example** create clearly marked testing work. The EnScribe example provides an **Open fictional workspace** button. These examples are separate from live student records.

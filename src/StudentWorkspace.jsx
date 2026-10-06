@@ -9,7 +9,6 @@ import {
 } from "./endepthUI";
 import {
   MOVE_OPTIONS,
-  PILOT_CODE_STORAGE_KEY,
   buildSnapshot,
   initialStudentStateFor,
   isShowcaseAssignment,
@@ -40,10 +39,6 @@ export default function StudentWorkspace({ resetToken, assignment }) {
   const [isCoachThinking, setIsCoachThinking] = useState(false);
   const [coachError, setCoachError] = useState("");
   const [hydratedSignature, setHydratedSignature] = useState(assignmentSignature);
-  const [pilotCode, setPilotCode] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY) || "";
-  });
   const chatEndRef = useRef(null);
 
   function applyStudentState(nextState, nextNotice = "") {
@@ -201,28 +196,11 @@ export default function StudentWorkspace({ resetToken, assignment }) {
     }
   }
 
-  function requestPilotCode() {
-    const entered = window.prompt(
-      "Enter the EnDepth pilot access code. Your teacher will provide it.",
-      pilotCode
-    );
-    if (entered === null) return "";
-    const cleanCode = entered.trim();
-    if (!cleanCode) {
-      setCoachError("A pilot access code is required to use the live coach.");
-      return "";
-    }
-    window.sessionStorage.setItem(PILOT_CODE_STORAGE_KEY, cleanCode);
-    setPilotCode(cleanCode);
-    setCoachError("");
-    return cleanCode;
-  }
-
   async function sendMessage() {
     const text = newMessage.trim();
     if (!text || isCoachThinking || coachLimitReached) return;
 
-    const accessCode = assignment.sandbox ? "owned-test-session" : pilotCode.trim() || requestPilotCode();
+    const accessCode = assignment.sandbox ? "owned-test-session" : assignment._studentId ? "individual-session" : "";
     if (!accessCode) return;
 
     const studentMessage = { id: Date.now(), role: "student", text };
@@ -252,8 +230,7 @@ export default function StudentWorkspace({ resetToken, assignment }) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         if (response.status === 401) {
-          window.sessionStorage.removeItem(PILOT_CODE_STORAGE_KEY);
-          setPilotCode("");
+          window.dispatchEvent(new Event("depth-session-invalid"));
         }
         const error = new Error(
           data.error || "The coach could not respond. Please try again."
@@ -279,7 +256,7 @@ export default function StudentWorkspace({ resetToken, assignment }) {
       setNewMessage(text);
       setCoachError(
         error.status === 401
-          ? "That pilot code was not accepted. Enter the current code and try again."
+          ? "Student access changed. Sign in using your current individual student code."
           : error.message || "The coach could not respond. Please try again."
       );
     } finally {
@@ -403,12 +380,9 @@ export default function StudentWorkspace({ resetToken, assignment }) {
                         ? `${assignment.maxCoachQuestions} of ${assignment.maxCoachQuestions} complete`
                         : `Question ${successfulCoachQuestions + 1} of ${assignment.maxCoachQuestions}`}
                     </Pill>
-                    <Pill tone={pilotCode ? "green" : "orange"} icon={pilotCode ? "check" : undefined}>
-                      {pilotCode ? "Live AI ready" : "Pilot code required"}
+                    <Pill tone={assignment._studentId || assignment.sandbox ? "green" : "orange"}>
+                      {assignment._studentId || assignment.sandbox ? "Signed in for live coaching" : "Use your teacher's student link"}
                     </Pill>
-                    <button className="text-button" type="button" onClick={requestPilotCode}>
-                      {pilotCode ? "Change code" : "Enter code"}
-                    </button>
                   </div>
                 </div>
 
@@ -576,7 +550,7 @@ export default function StudentWorkspace({ resetToken, assignment }) {
                 </div>
               </div>
 
-              <div className={`submission-row ${submitted ? "submitted" : ""}`}>
+              {!assignment.assignmentId ? <div className={`submission-row ${submitted ? "submitted" : ""}`}>
                 <div>
                   <strong>
                     {submitted
@@ -600,7 +574,7 @@ export default function StudentWorkspace({ resetToken, assignment }) {
                   {submitted ? "Reopen preparation" : "Submit preparation"}
                   <Icon name={submitted ? "rotate" : "check"} />
                 </button>
-              </div>
+              </div> : null}
             </div>
           </section>
         </div>

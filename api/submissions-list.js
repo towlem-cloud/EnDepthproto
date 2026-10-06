@@ -4,7 +4,6 @@ import {
   json,
   listSubmissionsForStaff,
 } from "../lib/endepth-db.js";
-import { backfillLegacySubmissionOwnership } from "../lib/ownership-maintenance.js";
 
 export default {
   async fetch(request) {
@@ -26,7 +25,6 @@ export default {
       const staff = await authenticateRequest(request);
       if (!staff) return json({ error: "The staff code was not accepted." }, 401);
 
-      await backfillLegacySubmissionOwnership();
       const submissions = await listSubmissionsForStaff(
         staff,
         body.assignmentId,

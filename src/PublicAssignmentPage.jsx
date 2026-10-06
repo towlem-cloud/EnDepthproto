@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import StudentSubmissionFlow from "./StudentSubmissionFlow";
+import EndepthStudentGate from "./EndepthStudentGate";
 import { LogoMark, Pill } from "./endepthUI";
 import { normalizeAssignment } from "./endepthConfig";
 
@@ -90,17 +91,17 @@ export default function PublicAssignmentPage({ slug }) {
           </button>
         </div>
       </header>
-      <StudentSubmissionFlow
+      {assignment.sandbox ? <StudentSubmissionFlow
         resetToken={resetToken}
         assignment={assignment}
         demoMode={false}
-      />
+      /> : <EndepthStudentGate assignment={assignment}><StudentSubmissionFlow resetToken={resetToken} assignment={assignment} demoMode={false} /></EndepthStudentGate>}
       <footer className="site-footer public-footer">
         <div><LogoMark /><span>EnDepth classroom pilot</span></div>
         <p>
           Your name, student email, and submitted preparation are visible only to
-          your assigned teacher and the pilot administrator. Your identity is not
-          sent to the AI coach.
+          your assigned teacher and the pilot administrator. Known identity fields are excluded
+          from AI requests. Academic writing is processed by the AI provider when you request live coaching and may itself identify you.
         </p>
       </footer>
     </div>

@@ -5,10 +5,11 @@ export async function post(action, body = {}, path = "/api/department") {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, ...body }),
   });
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(data.error || "Request failed.");
     error.status = response.status;
+    error.code = data.code;
     throw error;
   }
   return data;

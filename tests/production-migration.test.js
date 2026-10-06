@@ -12,6 +12,7 @@ const tables = [
   "endepth_coach_usage", "endepth_coach_requests", "department_admin",
   "department_sessions", "department_rate_limits", "enscribe_assignments",
   "enscribe_students", "enscribe_revisions", "enscribe_checks",
+  "enscribe_sessions", "endepth_student_access", "endepth_student_sessions",
 ];
 
 // This is a local PostgreSQL/WASM fixture. No connection URL, external driver,
@@ -143,6 +144,12 @@ test("production rerun preserves all existing department data and authentication
         VALUES ('writer-existing','writing-existing','preserved-student-token','Example','Learner','synthetic@example.invalid','Preserved original','Preserved working',2,3,1);
       INSERT INTO enscribe_revisions(id,student_id,version,draft,explanation)
         VALUES ('revision-existing','writer-existing',2,'Preserved working','Preserved explanation');
+      INSERT INTO enscribe_sessions(token_hash,student_id,credential_hash,expires_at)
+        VALUES ('preserved-writing-session','writer-existing','preserved-student-token','2099-01-01');
+      INSERT INTO endepth_student_access(student_id,assignment_id,first_name,last_name,email,code_salt,code_hash,credential_version)
+        VALUES ('preserved-depth-student','assignment-existing','Fictional','Learner','depth-fixture@example.invalid','preserved-depth-salt','preserved-depth-hash',3);
+      INSERT INTO endepth_student_sessions(token_hash,student_id,credential_version,expires_at)
+        VALUES ('preserved-depth-session','preserved-depth-student',3,'2099-01-01');
       INSERT INTO enscribe_checks(student_id,request_id,state,request_hash,academic,lease)
         VALUES ('writer-existing','request-existing','pending','preserved-request-hash','{"question":"Preserved question"}','preserved-writing-lease');
       INSERT INTO endepth_coach_requests(assignment_id,usage_key,request_id,request_hash,lease,state,reply)

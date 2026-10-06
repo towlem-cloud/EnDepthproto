@@ -8,6 +8,7 @@ import {
 } from "../lib/department-security.js";
 import { createDepthTest } from "../lib/depth-sandbox.js";
 import { staffWriting, studentWriting } from "../lib/enscribe-service.js";
+import { staffDepthAccess, studentDepthAccess } from "../lib/depth-student-access.js";
 export default {
   async fetch(request) {
     try {
@@ -24,11 +25,15 @@ export default {
         );
       const sql = await database();
       let result;
-      if (String(body.action).startsWith("student-"))
+      if (["depth-student-login", "depth-student-session", "depth-student-logout"].includes(body.action))
+        result = await studentDepthAccess(sql, request, body);
+      else if (String(body.action).startsWith("student-"))
         result = await studentWriting(sql, request, body);
       else {
         const staff = await session(request, sql);
-        if (body.action === "depth-test")
+        if (body.action === "depth-student-invite")
+          result = await staffDepthAccess(sql, staff, body);
+        else if (body.action === "depth-test")
           result = await createDepthTest(sql, staff);
         else if (String(body.action).startsWith("writing-"))
           result = await staffWriting(sql, staff, body);
@@ -47,6 +52,11 @@ export default {
       }
       return Response.json(result, { headers });
     } catch (error) {
+      if (String(error.message).includes("ACCESS_DENIED")) {
+        return Response.json({ error: "Student access changed. Sign in using your current private credential." }, {
+          status: 401, headers: { "Cache-Control": "no-store" },
+        });
+      }
       const known = [
         "VERSION_CONFLICT",
         "ALREADY_SUBMITTED",

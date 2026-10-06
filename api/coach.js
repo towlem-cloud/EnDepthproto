@@ -1,6 +1,8 @@
-import { ownsDepthSandbox, depthTestIdentity } from "../lib/depth-sandbox.js";
+import { depthTestIdentity } from "../lib/depth-sandbox.js";
 import { reserveDepth, finishDepth } from "../lib/depth-coach-requests.js";
 import { getAssignmentById } from "../lib/endepth-db.js";
+import { requireDepthStudent } from "../lib/depth-student-access.js";
+import { HttpError, sameOrigin } from "../lib/department-security.js";
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const MODERATION_MODEL =
@@ -132,9 +134,7 @@ function normalizeCoachReply(value) {
     .replace(/\s+/g, " ")
     .trim();
 
-  if (!reply) {
-    return "Your idea has a direction, but the reasoning still needs a more precise hinge before it can be defended in discussion. Which exact part of your own interpretation most needs to become more specific, and what in the assigned material would help you test it?";
-  }
+  if (!reply) throw new HttpError(502, "The live coach returned no usable feedback. Please try again.");
 
   // The coach should end with one question. If the model accidentally asks more
   // than one, preserve the diagnostic framing and the first complete question.
@@ -279,56 +279,18 @@ export default {
         503,
       );
     }
-    const requiredCode = process.env.ENDEPTH_ACCESS_CODE;
-    if (!requiredCode && !request.headers.get("cookie")) {
-      return json(
-        { error: "The pilot access code has not been configured yet." },
-        503,
-      );
-    }
-
+    try { sameOrigin(request); } catch (error) { return json({ error: error.message }, error.status || 403); }
     let body;
+    try { body = await request.json(); } catch { return json({ error: "The coach received an invalid request." }, 400); }
+    const assignmentId = cleanString(body?.assignmentId || body?.assignment?.assignmentId, 100);
+    if (!assignmentId) return json({ error: "Use the assignment link your teacher supplied." }, 400);
+    let studentCoachKey, studentAccess;
     try {
-      body = await request.json();
-    } catch {
-      return json({ error: "The coach received an invalid request." }, 400);
-    }
-    if (
-      (!requiredCode || cleanString(body?.accessCode, 200) !== requiredCode) &&
-      !(await ownsDepthSandbox(
-        request,
-        body?.assignmentId || body?.assignment?.assignmentId,
-      ))
-    ) {
-      return json({ error: "The pilot access code was not accepted." }, 401);
-    }
-
-    const assignmentId = cleanString(
-      body?.assignmentId || body?.assignment?.assignmentId,
-      100,
-    );
-    let studentCoachKey = cleanString(body?.studentCoachKey, 64).toLowerCase();
-    try {
-      studentCoachKey =
-        (await depthTestIdentity(request, assignmentId)) || studentCoachKey;
+      const sandboxKey = await depthTestIdentity(request, assignmentId);
+      studentAccess = sandboxKey ? { sandbox: true } : await requireDepthStudent(request, assignmentId);
+      studentCoachKey = sandboxKey || studentAccess.coachKey;
     } catch (error) {
-      return json(
-        {
-          error: error.status
-            ? error.message
-            : "Assignment access unavailable.",
-        },
-        error.status || 503,
-      );
-    }
-    if (!assignmentId || !/^[a-f0-9]{64}$/.test(studentCoachKey)) {
-      return json(
-        {
-          error:
-            "Enter your student email and use the assignment link your teacher posted before opening the live coach.",
-        },
-        400,
-      );
+      return json({ error: error.status ? error.message : "Assignment access unavailable." }, error.status || 503);
     }
 
     const messages = Array.isArray(body?.messages) ? body.messages : [];
@@ -363,6 +325,7 @@ export default {
         assignmentId,
         studentCoachKey,
         body,
+        studentAccess,
       );
       if (reservation.result === "cached") return json(reservation.cached);
       if (reservation.result !== "reserved")
@@ -441,7 +404,12 @@ export default {
         );
       }
 
+      const refused = payload.refusal || (payload.output || []).some((item) =>
+        item.type === "refusal" || (item.content || []).some((content) => content.type === "refusal"));
       const rawReply = extractOutputText(payload);
+      if (payload.status !== "completed" || payload.incomplete_details || payload.error || refused || !rawReply.trim()) {
+        throw new HttpError(502, "The live coach did not return complete usable feedback. No successful check was charged.");
+      }
       const outputModeration = await moderateText(rawReply);
       if (hasUrgentSafetySignal(outputModeration)) {
         await safelyRelease(assignmentId, studentCoachKey, reservation);

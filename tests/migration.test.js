@@ -104,7 +104,7 @@ INSERT INTO enscribe_revisions VALUES
    'Initial independent draft.', '2025-03-02Z'),
   ('writing-student:2', 'writing-student', 2, 'Existing revised draft.',
    'Existing explanation.', '2025-03-03Z');
-INSERT INTO enscribe_checks VALUES
+INSERT INTO enscribe_checks(student_id,request_id,state,request_hash,academic,reply,created_at,lease) VALUES
   ('writing-student', 'writing-request', 'pending', 'synthetic-existing-request-hash',
    '{"draft":"Existing revised draft."}', NULL, '2025-03-04Z', 'synthetic-writing-lease');
 INSERT INTO endepth_coach_usage VALUES

@@ -122,9 +122,11 @@ test("shared sessions preserve legacy IDs, records, credentials and links; appro
     "",
     sql,
   );
-  morgan = (
-    await security.login(request({}), process.env.ENDEPTH_TEACHER_CODE, "", sql)
-  ).staff;
+  const morganLogin = await security.login(
+    request({}), process.env.ENDEPTH_TEACHER_CODE, "", sql,
+  );
+  morgan = morganLogin.staff;
+  snapshot.morganCookie = morganLogin.cookie;
   const old = await saveAssignmentForStaff(morgan, {
     teacherId: morgan.teacherId,
     course: "Synthetic",
@@ -335,12 +337,12 @@ test("secure student links, immutable independent originals, revisions, conflict
   });
   studentId = invite.studentId;
   raw = new URLSearchParams(invite.studentPath.split("#")[1]).get("access");
-  studentRequest = request({}, "enscribe_student=" + raw);
   const enter = await writing.studentWriting(sql, request({}), {
     action: "student-enter",
     studentId,
     token: raw,
   });
+  studentRequest = request({}, enter.cookie.split(";")[0]);
   assert.match(enter.cookie, /HttpOnly; Secure; SameSite=Strict/);
   await assert.rejects(
     writing.studentWriting(sql, request({}), {
@@ -446,6 +448,7 @@ test("mocked live checks: failed/withheld/retries/concurrency preserve four-succ
       url.endsWith("moderations")
         ? { results: [{ flagged: false }] }
         : {
+            status: "completed",
             output_text:
               "The claim identifies a shared responsibility but leaves disagreement unexplained. Examine which part of the passage supports that tension. What would distinguish disagreement from a failure of shared responsibility?",
           },
@@ -697,7 +700,24 @@ test("rotation and disabling invalidate old codes/sessions including environment
 });
 test("EnDepth endpoint preserves richer moderated coaching, retries, concurrency and the fifth-call rejection", async () => {
   const handler = (await import("../api/coach.js")).default;
-  const key = security.digest("synthetic-coach-user");
+  // The earlier credential test disables Teacher A. Use a new assignment owned
+  // by the still-active Teacher B, without reviving the disabled account.
+  const depth = await saveAssignmentForStaff(B.staff, {
+    course: "Synthetic", section: "Authenticated", title: "Synthetic bounded coaching",
+    prompt: "Interpret the fictional garden.", sourceTitle: "Fictional garden",
+    passage: "The garden gave neighbors shared responsibility.", directions: "Make your own interpretation.", status: "open",
+  });
+  snapshot.authenticatedDepth = depth;
+  const { staffDepthAccess, studentDepthAccess } = await import("../lib/depth-student-access.js");
+  const invitation = await staffDepthAccess(sql, B.staff, {
+    action: "depth-student-invite", assignmentId: depth.assignmentId,
+    firstName: "CanonicalPrivateName", lastName: "CanonicalPrivateLast", email: "authenticated-coach@example.invalid",
+  });
+  const login = await studentDepthAccess(sql, request({}), {
+    action: "depth-student-login", assignmentId: depth.assignmentId, code: invitation.code,
+  });
+  const studentCookie = login.cookie.split(";")[0];
+  const key = security.digest(`${depth.assignmentId}:authenticated-coach@example.invalid`);
   let providerCalls = 0;
   const payloads = [],
     logs = [];
@@ -711,6 +731,7 @@ test("EnDepth endpoint preserves richer moderated coaching, retries, concurrency
       return Response.json({ results: [{ flagged: false, categories: {} }] });
     providerCalls++;
     return Response.json({
+      status: "completed",
       output_text:
         "The claim identifies a shared responsibility but leaves disagreement unexplained. This tension matters because cooperation does not guarantee consensus. Examine which part of the passage supports that tension before revising the claim. What would distinguish disagreement from a failure of shared responsibility?",
     });
@@ -719,9 +740,9 @@ test("EnDepth endpoint preserves richer moderated coaching, retries, concurrency
   try {
     const body = {
       accessCode: process.env.ENDEPTH_ACCESS_CODE,
-      assignmentId: snapshot.depth.assignmentId,
-      assignment: { assignmentId: snapshot.depth.assignmentId },
-      studentCoachKey: key,
+      assignmentId: depth.assignmentId,
+      assignment: { assignmentId: depth.assignmentId },
+      studentCoachKey: security.digest("forged-client-coach-user"),
       firstName: "PrivateIdentityName",
       lastName: "PrivateIdentityLast",
       email: "privateidentity@example.invalid",
@@ -741,28 +762,31 @@ test("EnDepth endpoint preserves richer moderated coaching, retries, concurrency
     const first = await call(handler, {
       ...body,
       requestId: "depth_retry_request_0001",
-    });
+    }, studentCookie);
     assert.equal(first.status, 200);
     assert.equal(first.data.usage.successfulQuestions, 1);
     assert.ok(first.data.reply.split(/\s+/).length > 30);
     const again = await call(handler, {
       ...body,
       requestId: "depth_retry_request_0001",
-    });
+    }, studentCookie);
     assert.equal(again.data.reply, first.data.reply);
     assert.equal(providerCalls, 1);
     const concurrent = await Promise.all(
       Array.from({ length: 6 }, (_, i) =>
-        call(handler, { ...body, requestId: "depth_concurrent_req_" + i }),
+        call(handler, { ...body, requestId: "depth_concurrent_req_" + i }, studentCookie),
       ),
     );
     assert.equal(concurrent.filter((r) => r.status === 200).length, 3);
     assert.equal(providerCalls, 4);
     assert.equal(
-      (await call(handler, { ...body, requestId: "depth_fifth_request_0001" }))
+      (await call(handler, { ...body, studentCoachKey: security.digest("another-forged-quota-key"), requestId: "depth_fifth_request_0001" }, studentCookie))
         .status,
       409,
     );
+    const usage = (await sql`SELECT successful_count FROM endepth_coach_usage
+      WHERE assignment_id=${depth.assignmentId} AND student_email=${key}`)[0];
+    assert.equal(usage.successful_count, 4);
     for (const p of payloads) {
       const str = JSON.stringify(p);
       for (const secret of [
@@ -770,6 +794,10 @@ test("EnDepth endpoint preserves richer moderated coaching, retries, concurrency
         "PrivateIdentityLast",
         "privateidentity@example.invalid",
         "private-invitation-token",
+        "CanonicalPrivateName",
+        "CanonicalPrivateLast",
+        "authenticated-coach@example.invalid",
+        invitation.code,
         key,
         process.env.ENDEPTH_ACCESS_CODE,
         process.env.OPENAI_API_KEY,
@@ -779,9 +807,9 @@ test("EnDepth endpoint preserves richer moderated coaching, retries, concurrency
     }
     assert.equal(logs.length, 0);
     // Closing is enforced by the same real API handler before the AI provider is called.
-    await sql`UPDATE endepth_assignments SET status='closed' WHERE assignment_id=${snapshot.depth.assignmentId}`;
+    await sql`UPDATE endepth_assignments SET status='closed' WHERE assignment_id=${depth.assignmentId}`;
     assert.equal(
-      (await call(handler, { ...body, requestId: "depth_closed_request_0001" }))
+      (await call(handler, { ...body, requestId: "depth_closed_request_0001" }, studentCookie))
         .status,
       409,
     );
@@ -798,7 +826,11 @@ test("EnDepth seventeenth-student admission is atomic and legacy ownership remai
   const old = (
     await sql`SELECT assignment_id,teacher_id FROM endepth_submissions WHERE submission_id='synthetic-legacy-record'`
   )[0];
-  await sql`UPDATE endepth_assignments SET status='open' WHERE assignment_id=${snapshot.depth.assignmentId}`;
+  const depth = await saveAssignmentForStaff(B.staff, {
+    course: "Synthetic", section: "Capacity", title: "Synthetic independent capacity fixture",
+    prompt: "Interpret a fictional choice.", sourceTitle: "Fictional excerpt", passage: "A fictional traveler chooses a path.",
+    directions: "Make your own decisions.", status: "open",
+  });
   const inserts = await Promise.allSettled(
     Array.from(
       { length: 18 },
@@ -806,7 +838,7 @@ test("EnDepth seventeenth-student admission is atomic and legacy ownership remai
         _,
         i,
       ) => sql`INSERT INTO endepth_submissions(submission_id,assignment_key,teacher_name,course,assignment_title,central_question,student_first_name,student_last_name,student_key,assignment_id,teacher_id,student_email)
- VALUES(${"capacity-test-" + i},${snapshot.depth.assignmentId},'Example','Synthetic','Capacity','Synthetic','Fictional','Writer',${"capacity-" + i},${snapshot.depth.assignmentId},${snapshot.depth.teacherId},${"synthetic" + i + "@example.invalid"})`,
+ VALUES(${"capacity-test-" + i},${depth.assignmentId},'Example','Synthetic','Capacity','Synthetic','Fictional','Writer',${"capacity-" + i},${depth.assignmentId},${depth.teacherId},${"synthetic" + i + "@example.invalid"})`,
     ),
   );
   assert.equal(inserts.filter((r) => r.status === "fulfilled").length, 17);
@@ -896,11 +928,14 @@ test("student link rotation and stalled-check recovery revoke old capabilities a
   const newRaw = new URLSearchParams(
     rotated.data.studentPath.split("#")[1],
   ).get("access");
+  const entered = await writing.studentWriting(sql, request({}), {
+    action: "student-enter", studentId: s, token: newRaw,
+  });
   assert.ok(
     (
       await writing.studentWriting(
         sql,
-        request({}, "enscribe_student=" + newRaw),
+        request({}, entered.cookie.split(";")[0]),
         { action: "student-read", studentId: s },
       )
     ).student.original,
@@ -969,7 +1004,7 @@ test("EnDepth testing data is teacher-owned even when a class code is supplied",
       messages: [{ role: "student", text: "Test question" }],
       requestId: "sandbox_modified_req_0001",
     },
-    "",
+    snapshot.morganCookie,
   );
   assert.equal(response.status, 403);
   assert.equal(

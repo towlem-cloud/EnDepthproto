@@ -9,3 +9,6 @@ _site/
 .jekyll-metadata
 /vendor
 Gemfile.lock
+.local/
+test-results/
+playwright-report/

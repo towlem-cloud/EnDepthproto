@@ -617,3 +617,9 @@
     transition: none !important;
   }
 }
+
+.department-student-access form { display: grid; gap: 16px; margin: 24px 0; }
+.department-student-access label { display: grid; gap: 10px; font-weight: 600; }
+.department-student-access input, .department-student-credential input { width: 100%; padding: 14px; border: 1px solid #cfc5bb; border-radius: 8px; font: inherit; color: #282522; background: #fffdf9; }
+.department-student-credential { margin-top: 24px; border: 1px solid #df8d52; }
+.department-student-credential input { user-select: all; overflow-wrap: anywhere; }

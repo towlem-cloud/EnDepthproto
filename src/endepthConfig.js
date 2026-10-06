@@ -209,7 +209,8 @@ export function initialStudentStateFor(assignment) {
 }
 
 export function studentStorageKey(assignment) {
-  return `${STORAGE_KEY}:${shortHash(stableAssignmentKey(assignment))}`;
+  const identity = assignment._studentId || (assignment.sandbox ? `sandbox:${assignment.teacherId}` : "preview");
+  return `${STORAGE_KEY}:${shortHash(stableAssignmentKey(assignment))}:${identity}`;
 }
 
 export function loadStudentState(assignment) {

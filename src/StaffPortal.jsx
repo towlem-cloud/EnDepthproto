@@ -46,6 +46,8 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState("");
   const [assignmentDraft, setAssignmentDraft] = useState(null);
   const [teacherDraft, setTeacherDraft] = useState(null);
+  const [studentInvite, setStudentInvite] = useState({ firstName: "", lastName: "", email: "" });
+  const [issuedStudent, setIssuedStudent] = useState(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -138,7 +140,7 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
       );
       setNotice("Student records refreshed.");
     } catch (loadError) {
-      if (loadError.status === 401) lockPortal();
+      if (loadError.status === 401) clearPortal();
       setError(loadError.message || "Student records could not be loaded.");
     } finally {
       setLoading(false);
@@ -182,8 +184,7 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
     filteredSubmissions[0] ||
     null;
 
-  function lockPortal() {
-    post("/api/staff-auth", {action:"logout"}).catch(()=>{});
+  function clearPortal() {
     window.sessionStorage.removeItem(STAFF_CODE_KEY);
     setCode("");
     setDraftCode("");
@@ -193,12 +194,30 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
     setSubmissions([]);
     setAssignmentDraft(null);
     setTeacherDraft(null);
+    setIssuedStudent(null);
+    setStudentInvite({ firstName: "", lastName: "", email: "" });
+    setSelectedAssignmentId("");
+    setSelectedSubmissionId("");
+    setSearch("");
     setError("");
     setNotice("");
     onLock?.();
   }
 
+  async function lockPortal() {
+    setLoading(true);
+    setError("");
+    try {
+      await post("/api/staff-auth", { action: "logout" });
+      clearPortal();
+    } catch (failure) {
+      if (failure.status === 401) clearPortal();
+      else setError("Sign-out was not confirmed. " + failure.message);
+    } finally { setLoading(false); }
+  }
+
   function startAssignment(existing = null) {
+    setIssuedStudent(null);
     setAssignmentDraft(
       existing ? normalizeAssignment(existing) : blankAssignment(staff, teachers)
     );
@@ -224,11 +243,23 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
           : "Assignment saved. Change its status to Open before posting the student link."
       );
     } catch (saveError) {
-      if (saveError.status === 401) lockPortal();
+      if (saveError.status === 401) clearPortal();
       setError(saveError.message || "The assignment could not be saved.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function issueStudent(event) {
+    event.preventDefault();
+    setLoading(true); setError("");
+    try {
+      const data = await post("/api/department", { action: "depth-student-invite", assignmentId: assignmentDraft.assignmentId, ...studentInvite });
+      setIssuedStudent({ code: data.code, identity: { ...studentInvite } });
+      setStudentInvite({ firstName: "", lastName: "", email: "" });
+      setNotice("Private individual student code issued. Deliver the code and assignment link to this student privately; no email was sent.");
+    } catch (failure) { if (failure.status === 401) clearPortal(); setError(failure.message); }
+    finally { setLoading(false); }
   }
 
   function studentUrl(assignment) {
@@ -351,7 +382,7 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
           <button className="secondary-button" type="button" onClick={() => loadPortalData()} disabled={loading}>
             Refresh portal <Icon name="rotate" />
           </button>
-          <button className="text-button" type="button" onClick={lockPortal}>Lock portal</button>
+          <button className="text-button" type="button" onClick={lockPortal} disabled={loading}>Lock portal</button>
         </div>
       </section>
 
@@ -376,7 +407,7 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
       </nav>
 
       {notice ? <div className="inline-notice success-notice portal-notice">{notice}</div> : null}
-      {error ? <div className="inline-notice portal-notice">{error}</div> : null}
+      {error ? <div className="inline-notice portal-notice" role="alert">{error}</div> : null}
 
       {tab === "assignments" ? (
         <section className="portal-section">
@@ -450,6 +481,7 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
                   <span>Assigned teacher</span>
                   <select
                     value={assignmentDraft.teacherId}
+                    disabled={Boolean(assignmentDraft.assignmentId)}
                     onChange={(event) => {
                       const teacher = teachers.find((item) => item.teacherId === event.target.value);
                       setAssignmentDraft((current) => ({
@@ -488,6 +520,8 @@ export default function StaffPortal({ onLock, onStaff } = {}) {
               ) : null}
             </div>
             {assignmentDraft.publicSlug ? <div className="share-link-box"><span>Student link</span><code>{studentUrl(assignmentDraft)}</code></div> : null}
+            {assignmentDraft.assignmentId && !assignmentDraft.sandbox ? <details className="department-student-access"><summary>Issue individual student access</summary><form onSubmit={issueStudent}><p>Each student needs a private code and the assignment link. Existing student records are preserved. Reissuing for the same assignment and email revokes that student’s previous access.</p><div className="portal-form-grid">{[["firstName", "Student first name"], ["lastName", "Student last name"], ["email", "Student email"]].map(([field, label]) => <label key={field}><span>{label}</span><input required type={field === "email" ? "email" : "text"} maxLength={field === "email" ? 254 : 80} value={studentInvite[field]} onChange={(event) => setStudentInvite((current) => ({ ...current, [field]: event.target.value }))} /></label>)}</div><button type="submit" className="primary-button" disabled={loading}>Issue private student code</button></form></details> : null}
+            {issuedStudent ? <section className="content-card department-student-credential" role="status"><h3>Private student access</h3><p>For {issuedStudent.identity.firstName} {issuedStudent.identity.lastName} · {issuedStudent.identity.email}. Deliver individually using an approved private channel.</p><input aria-label="Private student code" readOnly value={issuedStudent.code || ""} onFocus={(event) => event.target.select()} /><p><a href={studentUrl(assignmentDraft)}>Student assignment link</a>. No email was sent.</p><button type="button" className="secondary-button" onClick={() => setIssuedStudent(null)}>I have recorded it privately — dismiss</button></section> : null}
           </div>
         </section>
       ) : null}

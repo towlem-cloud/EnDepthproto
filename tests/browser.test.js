@@ -57,6 +57,7 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     const errors = [];
     const coachRequests = [];
     let failNextGeneration = false;
+    let failNextStaffLogout = false;
     provider = mock.method(globalThis, "fetch", async (url) => {
       assert.ok(String(url).startsWith("https://api.openai.com/v1/"));
       if (String(url).endsWith("/moderations"))
@@ -70,6 +71,7 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
         );
       }
       return Response.json({
+        status: "completed",
         output_text:
           "Your draft identifies shared responsibility and disagreement but leaves their relationship unexplained. Examine which decisions bring neighbors together and which priorities create tension. What evidence would help you decide whether a shared task strengthens relationships?",
       });
@@ -78,6 +80,13 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
       const req = route.request(),
         url = new URL(req.url());
       if (url.pathname.startsWith("/api/")) {
+        if (url.pathname === "/api/staff-auth" && req.method() === "POST" &&
+            req.postDataJSON()?.action === "logout" && failNextStaffLogout) {
+          failNextStaffLogout = false;
+          await route.fulfill({ status: 500, contentType: "application/json",
+            body: JSON.stringify({ error: "Synthetic logout failure." }) });
+          return;
+        }
         if (url.pathname === "/api/department" && req.method() === "POST") {
           const body = req.postDataJSON();
           if (body.action === "student-coach") coachRequests.push(body);
@@ -308,6 +317,22 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
       path: "/tmp/enscribe-student-mobile.png",
       fullPage: true,
     });
+    const studentLogout = page.waitForResponse((response) =>
+      response.url().endsWith("/api/department") &&
+      response.request().postDataJSON()?.action === "student-logout",
+    );
+    await page.getByRole("button", {
+      name: "Sign out of my writing workspace", exact: true,
+    }).click();
+    assert.equal((await studentLogout).status(), 200);
+    await page.getByText("Signed out. To return, open the private student link from your teacher.", {
+      exact: true,
+    }).waitFor();
+    assert.equal(await page.getByLabel("Working / final draft", { exact: true }).count(), 0);
+    assert.equal(await page.getByText(/whose priorities matter/).count(), 0);
+    await page.reload();
+    await page.getByText(/private student link/).first().waitFor();
+    assert.equal(await page.getByLabel("Working / final draft", { exact: true }).count(), 0);
     await page.goto("https://synthetic.test/");
     await page
       .getByRole("button", { name: "Open the student demo", exact: true })
@@ -328,6 +353,18 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
         exact: true,
       })
       .waitFor();
+    failNextStaffLogout = true;
+    const failedLogout = page.waitForResponse((response) =>
+      response.url().endsWith("/api/staff-auth") &&
+      response.request().postDataJSON()?.action === "logout",
+    );
+    await page.getByRole("button", { name: "Lock portal", exact: true }).click();
+    assert.equal((await failedLogout).status(), 500);
+    await page.getByRole("alert").getByText(/Sign-out was not confirmed/).waitFor();
+    await page.getByRole("heading", {
+      name: "Build assignments once. Share one student link.", exact: true,
+    }).waitFor();
+    assert.ok((await sql`SELECT count(*)::int AS n FROM department_sessions`)[0].n > 0);
     const logoutResponse=page.waitForResponse(r=>r.url().endsWith('/api/staff-auth')&&r.request().postData()?.includes('logout'));
     await page
       .getByRole("button", { name: "Lock portal", exact: true })
@@ -476,6 +513,99 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
       name: "Build assignments once. Share one student link.", exact: true,
     }).waitFor();
     await page.locator(".staff-portal-banner").getByText("marksd@ensworth.com", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Create assignment", exact: true }).click();
+    await page.getByLabel("Course", { exact: true }).fill("Synthetic privacy seminar");
+    await page.getByLabel("Section or period", { exact: true }).fill("Privacy test only");
+    await page.getByLabel("Assignment title", { exact: true }).fill("Synthetic independent EnDepth records");
+    await page.getByLabel("Status").selectOption("open");
+    await page.getByRole("button", { name: "Save assignment", exact: true }).click();
+    await page.getByText("Issue individual student access", { exact: true }).click();
+    async function issueDepthCode(firstName, email) {
+      await page.getByLabel("Student first name", { exact: true }).fill(firstName);
+      await page.getByLabel("Student last name", { exact: true }).fill("Fictional");
+      await page.getByLabel("Student email", { exact: true }).fill(email);
+      const issued = page.waitForResponse((response) =>
+        response.url().endsWith("/api/department") &&
+        response.request().postDataJSON()?.action === "depth-student-invite",
+      );
+      await page.getByRole("button", { name: "Issue private student code", exact: true }).click();
+      assert.equal((await issued).status(), 200);
+      const code = await page.getByLabel("Private student code").inputValue();
+      const path = await page.getByRole("link", { name: "Student assignment link", exact: true }).getAttribute("href");
+      await page.getByRole("button", { name: "I have recorded it privately — dismiss", exact: true }).click();
+      return { code, path };
+    }
+    const alpha = await issueDepthCode("Alpha", "alpha-browser@example.invalid");
+    const beta = await issueDepthCode("Beta", "beta-browser@example.invalid");
+    assert.equal(alpha.path, beta.path);
+    const studentPage = await context.newPage();
+    studentPage.on("pageerror", (error) => errors.push(error.message));
+    await studentPage.goto(alpha.path);
+    async function openDepthStudent(code, firstName) {
+      await studentPage.getByLabel("Individual student access code", { exact: true }).fill(code);
+      const login = studentPage.waitForResponse((response) =>
+        response.url().endsWith("/api/department") &&
+        response.request().postDataJSON()?.action === "depth-student-login",
+      );
+      await studentPage.getByRole("button", { name: "Open my workspace", exact: true }).click();
+      assert.equal((await login).status(), 200);
+      await studentPage.getByLabel("First name", { exact: true }).waitFor().catch(async (failure) => {
+        await studentPage.screenshot({ path: "/tmp/depth-private-login-failure.png", fullPage: true });
+        assert.deepEqual(errors, []);
+        throw failure;
+      });
+      assert.equal(await studentPage.getByLabel("First name", { exact: true }).inputValue(), firstName);
+      assert.equal(await studentPage.getByLabel("First name", { exact: true }).getAttribute("readonly"), "");
+    }
+    await openDepthStudent(alpha.code, "Alpha");
+    const alphaDraft = "ISOLATED-STUDENT-ALPHA notices that the fictional garden requires neighbors to share difficult choices about water, time, and space. Their common responsibility creates relationships, but those relationships do not always create agreement. Each decision reveals who can participate, whose needs matter, and what cooperation asks each person to give up.";
+    await studentPage.locator(".large-textarea").fill(alphaDraft);
+    await studentPage.waitForFunction((text) => Object.values(localStorage).some((value) => {
+      try { return JSON.parse(value).initialResponse === text; } catch { return false; }
+    }), alphaDraft);
+    await studentPage.reload();
+    await studentPage.getByLabel("First name", { exact: true }).waitFor();
+    assert.equal(await studentPage.locator(".large-textarea").inputValue(), alphaDraft);
+    await studentPage.locator(".field-stack textarea").nth(0).fill("Neighbors must decide who receives the last available water during a drought.");
+    await studentPage.locator(".field-stack textarea").nth(1).fill("Their decision reveals competing needs within a shared task and a limited resource.");
+    await studentPage.locator(".claim-field textarea").fill("A shared task can build relationships while exposing unequal priorities among neighbors in the garden.");
+    await studentPage.locator(".prep-field").filter({ hasText: "The complication" }).locator("textarea").fill("Cooperation may become fragile when the common task benefits some neighbors more than others.");
+    const alphaQuestion = "What would make the garden's water decision fair for all neighbors?";
+    await studentPage.locator(".question-field textarea").fill(alphaQuestion);
+    await studentPage.waitForFunction((text) => Object.values(localStorage).some((value) => {
+      try { return JSON.parse(value).openQuestion === text; } catch { return false; }
+    }), alphaQuestion);
+    const submitted = studentPage.waitForResponse((response) =>
+      response.url().endsWith("/api/submissions") && response.request().method() === "POST",
+    );
+    await studentPage.locator(".real-submit-card").getByRole("button", { name: "Submit preparation", exact: true }).click();
+    assert.equal((await submitted).status(), 200);
+    await studentPage.getByRole("button", { name: "Update submission", exact: true }).waitFor();
+    async function signOutDepth() {
+      const response = studentPage.waitForResponse((result) =>
+        result.url().endsWith("/api/department") &&
+        result.request().postDataJSON()?.action === "depth-student-logout",
+      );
+      await studentPage.getByRole("button", { name: "Sign out of my student workspace", exact: true }).click();
+      assert.equal((await response).status(), 200);
+      await studentPage.getByLabel("Individual student access code", { exact: true }).waitFor();
+      assert.equal(await studentPage.locator(".large-textarea").count(), 0);
+      await studentPage.reload();
+      await studentPage.getByLabel("Individual student access code", { exact: true }).waitFor();
+      assert.equal(await studentPage.getByLabel("First name", { exact: true }).count(), 0);
+    }
+    await signOutDepth();
+    await openDepthStudent(beta.code, "Beta");
+    assert.equal(await studentPage.locator(".large-textarea").inputValue(), "");
+    assert.equal(await studentPage.getByRole("button", { name: "Update submission", exact: true }).count(), 0);
+    await studentPage.locator(".real-submit-card").getByText("Not yet submitted", { exact: true }).waitFor();
+    assert.equal(await studentPage.getByText(/ISOLATED-STUDENT-ALPHA/).count(), 0);
+    await studentPage.reload();
+    await studentPage.getByLabel("First name", { exact: true }).waitFor();
+    assert.equal(await studentPage.getByLabel("First name", { exact: true }).inputValue(), "Beta");
+    assert.equal(await studentPage.locator(".large-textarea").inputValue(), "");
+    await signOutDepth();
+    await studentPage.close();
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();
