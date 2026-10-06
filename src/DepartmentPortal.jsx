@@ -90,7 +90,10 @@ export default function DepartmentPortal() {
   async function signIn(e) {
     e.preventDefault();
     await run(async () => {
-      const d = await post("login", { code, email }, "/api/staff-auth");
+      const d = await post("login", {
+        code: code.trim(),
+        email: email.trim(),
+      }, "/api/staff-auth");
       setCode("");
       setStaff(d.staff);
       await refresh(d.staff);
@@ -171,6 +174,8 @@ export default function DepartmentPortal() {
           </label>
           <button disabled={busy}>Sign in</button>
           <p>
+            Use the email saved on your teacher account, or leave it blank for an
+            existing code.
             Email alone does not grant access. Ask Morgan for your individual
             credential.
           </p>

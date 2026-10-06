@@ -120,7 +120,7 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     await page.goto("https://synthetic.test/?tool=department");
     await page
       .getByLabel("Individual teacher or administrator code")
-      .fill(process.env.ENDEPTH_TEACHER_CODE);
+      .fill("  " + process.env.ENDEPTH_TEACHER_CODE + "  ");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page
       .getByRole("heading", { name: "EnScribe Writing Studio", exact: true })
