@@ -49,6 +49,63 @@ const call = async (handler, body, cookie = "", ip = "203.0.113.10") => {
 };
 let admin, A, B, morgan, legacy, assignment;
 const snapshot = {};
+test("legacy short administrator codes bootstrap with normalized environment input and remain governed by stored rotation", async () => {
+  const adminDb = new PGlite();
+  const previousCode = process.env.ENDEPTH_ADMIN_CODE;
+  function adminSql(strings, ...values) {
+    let text = strings[0];
+    values.forEach((_, index) => (text += "$" + (index + 1) + strings[index + 1]));
+    return adminDb.query(text, values).then((result) => result.rows);
+  }
+  try {
+    await adminDb.exec(`
+      CREATE TABLE endepth_teachers (
+        teacher_id TEXT PRIMARY KEY,slug TEXT,display_name TEXT,email TEXT,
+        active BOOLEAN,activation_state TEXT,credential_version INTEGER,
+        auth_scheme TEXT,code_salt TEXT,code_hash TEXT,created_at TIMESTAMPTZ
+      );
+      CREATE TABLE department_admin (
+        id INTEGER PRIMARY KEY,code_hash TEXT NOT NULL,code_salt TEXT NOT NULL,
+        auth_scheme TEXT NOT NULL DEFAULT 'scrypt',credential_version INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE department_sessions (
+        token_hash TEXT PRIMARY KEY,teacher_id TEXT,role TEXT NOT NULL,
+        credential_version INTEGER NOT NULL,expires_at TIMESTAMPTZ NOT NULL
+      );
+      CREATE TABLE department_rate_limits (
+        bucket TEXT PRIMARY KEY,attempts INTEGER NOT NULL,expires_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+    process.env.ENDEPTH_ADMIN_CODE = "\n  adm7  \t";
+    const first = await security.login(request({}), "adm7", "", adminSql);
+    assert.equal(first.staff.role, "admin");
+    const bootstrapped = await adminSql`SELECT * FROM department_admin WHERE id=1`;
+    assert.equal(bootstrapped[0].credential_version, 1);
+    assert.equal(await security.passwordMatches("adm7", bootstrapped[0]), true);
+    assert.equal(await security.passwordMatches(process.env.ENDEPTH_ADMIN_CODE, bootstrapped[0]), false);
+    process.env.ENDEPTH_ADMIN_CODE = "different-synthetic-env-code";
+    await assert.rejects(
+      security.login(request({}), process.env.ENDEPTH_ADMIN_CODE, "", adminSql),
+      (error) => error.status === 401,
+    );
+    assert.equal((await security.login(request({}), "adm7", "", adminSql)).staff.role, "admin");
+    assert.deepEqual(await adminSql`SELECT * FROM department_admin WHERE id=1`, bootstrapped);
+    const rotated = await security.manageAccount(adminSql, first.staff, { action: "admin-rotate" });
+    assert.match(rotated.newCode, /^[A-Za-z0-9_-]{43}$/);
+    for (const rejected of ["adm7", process.env.ENDEPTH_ADMIN_CODE, "", "   ", "x".repeat(301)]) {
+      await assert.rejects(
+        security.login(request({}), rejected, "", adminSql),
+        (error) => error.status === 401,
+      );
+    }
+    await assert.rejects(security.session(request({}, first.cookie), adminSql), /Sign in again/);
+    assert.equal((await security.login(request({}), rotated.newCode, "", adminSql)).staff.role, "admin");
+  } finally {
+    if (previousCode === undefined) delete process.env.ENDEPTH_ADMIN_CODE;
+    else process.env.ENDEPTH_ADMIN_CODE = previousCode;
+    await adminDb.close();
+  }
+});
 test("shared sessions preserve legacy IDs, records, credentials and links; approved roster activates individually", async () => {
   const { ensurePilotSchema } = await import("../lib/endepth-db.js");
   await ensurePilotSchema();

@@ -1,10 +1,20 @@
 # Teacher access to EnScribe and EnDepth
 
+## Published sites available now
+
+**EnScribe:** open https://ensworth-writing-studio.towlem.chatgpt.site/ and sign in with your ChatGPT account using the school email approved by Morgan. Select **Teacher desk**, then **New assignment**. Your EnDepth code does not sign you into this site.
+
+**EnDepth:** open https://en-depthproto.vercel.app/ and use your existing individual teacher code in the teacher portal. These are separate published sites with separate sign-ins.
+
+The seven approved English teachers have been added to the original EnScribe site's audience and teacher list. If you are signed in to ChatGPT using another email, sign out and use your approved school account. Student access to that restricted site must be arranged separately.
+
+## Combined portal after production rollout
+
 Once the production department rollout is complete, open:
 
 https://en-depthproto.vercel.app/?tool=department
 
-Sign in with your school email and the individual code Morgan supplies privately. One sign-in opens both tools. Email by itself does not grant access. Keep your code private and sign out when using a shared computer.
+Sign in with the individual code Morgan supplies privately. Your school email is optional for existing codes; when entered, it must match the saved teacher account. One sign-in opens both tools. Email by itself does not grant access. Keep your code private and sign out when using a shared computer. A preview demo may have a different account registry; codes created in live EnDepth are not yet verified there.
 
 ## EnScribe Writing Studio
 
