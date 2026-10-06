@@ -1,11 +1,9 @@
+import { authenticateRequest } from "../lib/department-security.js";
 import {
-  authenticateStaffCode,
-  cleanString,
   databaseIsConfigured,
   json,
   listSubmissionsForStaff,
-} from "./submissions-db.js";
-import { backfillLegacySubmissionOwnership } from "./ownership-maintenance.js";
+} from "../lib/endepth-db.js";
 
 export default {
   async fetch(request) {
@@ -23,15 +21,10 @@ export default {
       body = {};
     }
 
-    const suppliedCode =
-      cleanString(request.headers.get("x-endepth-staff-code"), 300) ||
-      cleanString(body.code, 300);
-
     try {
-      const staff = await authenticateStaffCode(suppliedCode);
+      const staff = await authenticateRequest(request);
       if (!staff) return json({ error: "The staff code was not accepted." }, 401);
 
-      await backfillLegacySubmissionOwnership();
       const submissions = await listSubmissionsForStaff(
         staff,
         body.assignmentId,
@@ -39,7 +32,8 @@ export default {
       );
       return json({ submissions, staff });
     } catch (error) {
-      console.error("EnDepth submission list failed", error);
+      if (error.status) return json({ error: error.message }, error.status);
+      console.error("EnDepth submission list failed");
       return json({ error: "Student submissions could not be loaded." }, 500);
     }
   },

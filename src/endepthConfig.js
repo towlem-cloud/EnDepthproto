@@ -45,6 +45,7 @@ export function normalizeAssignment(value = {}) {
   return {
     ...DEFAULT_ASSIGNMENT,
     ...candidate,
+    sandbox: Boolean(candidate.sandbox),
     assignmentId: String(candidate.assignmentId || "").trim(),
     publicSlug: String(candidate.publicSlug || "").trim(),
     teacherId: String(candidate.teacherId || "").trim(),
@@ -191,6 +192,14 @@ function createCleanStudentState() {
 }
 
 export function initialStudentStateFor(assignment) {
+  if(assignment.sandbox) return {
+    ...createCleanStudentState(),
+    coachUnlocked:true,
+    initialResponse:"At first, I think the fictional garden helps the community because it gives neighbors a shared responsibility. But the passage says they disagree about how to use it. That makes me wonder whether a shared project creates cooperation by itself, or whether it only gives people a reason to work through existing disagreements.",
+    newMessage:"I want to examine the difference between shared responsibility and agreement in the fictional garden passage.",
+    evidence:"The garden gave neighbors a shared responsibility, but they disagreed about how to use the space.",
+    significance:"This contrast suggests that cooperation can create a shared task without settling differences about priorities.",
+  };
   return isShowcaseAssignment(assignment)
     ? {
         ...SHOWCASE_STUDENT_STATE,
@@ -200,7 +209,8 @@ export function initialStudentStateFor(assignment) {
 }
 
 export function studentStorageKey(assignment) {
-  return `${STORAGE_KEY}:${shortHash(stableAssignmentKey(assignment))}`;
+  const identity = assignment._studentId || (assignment.sandbox ? `sandbox:${assignment.teacherId}` : "preview");
+  return `${STORAGE_KEY}:${shortHash(stableAssignmentKey(assignment))}:${identity}`;
 }
 
 export function loadStudentState(assignment) {

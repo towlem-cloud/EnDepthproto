@@ -31,15 +31,12 @@ function formatDate(value) {
 }
 
 function csvCell(value) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+  return `"${String(value ?? "").replace(/^[\s]*[=+@-]/, "'$&").replace(/"/g, '""')}"`;
 }
 
-export default function StaffPortal() {
-  const [code, setCode] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return window.sessionStorage.getItem(STAFF_CODE_KEY) || "";
-  });
-  const [draftCode, setDraftCode] = useState(code);
+export default function StaffPortal({ onLock, onStaff } = {}) {
+  const [code, setCode] = useState("");
+  const [draftCode, setDraftCode] = useState("");
   const [staff, setStaff] = useState(null);
   const [tab, setTab] = useState("assignments");
   const [assignments, setAssignments] = useState([]);
@@ -49,6 +46,8 @@ export default function StaffPortal() {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState("");
   const [assignmentDraft, setAssignmentDraft] = useState(null);
   const [teacherDraft, setTeacherDraft] = useState(null);
+  const [studentInvite, setStudentInvite] = useState({ firstName: "", lastName: "", email: "" });
+  const [issuedStudent, setIssuedStudent] = useState(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -58,7 +57,7 @@ export default function StaffPortal() {
     const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...body, code: activeCode }),
+      body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -79,11 +78,12 @@ export default function StaffPortal() {
     setError("");
     try {
       const data = await post("/api/staff-auth", { code: cleanCode }, cleanCode);
-      window.sessionStorage.setItem(STAFF_CODE_KEY, cleanCode);
-      setCode(cleanCode);
-      setDraftCode(cleanCode);
+      window.sessionStorage.removeItem(STAFF_CODE_KEY);
+      setCode("");
+      setDraftCode("");
       setStaff(data.staff);
       setTab("assignments");
+      onStaff?.(data.staff);
       await loadPortalData(cleanCode, data.staff);
     } catch (authError) {
       window.sessionStorage.removeItem(STAFF_CODE_KEY);
@@ -140,7 +140,7 @@ export default function StaffPortal() {
       );
       setNotice("Student records refreshed.");
     } catch (loadError) {
-      if (loadError.status === 401) lockPortal();
+      if (loadError.status === 401) clearPortal();
       setError(loadError.message || "Student records could not be loaded.");
     } finally {
       setLoading(false);
@@ -148,9 +148,16 @@ export default function StaffPortal() {
   }
 
   useEffect(() => {
-    if (code && !staff) authenticate(code);
-    // Restore one authenticated browser session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    window.sessionStorage.removeItem(STAFF_CODE_KEY);
+    post("/api/staff-auth", { action: "session" })
+      .then(async (data) => {
+        setStaff(data.staff);
+        onStaff?.(data.staff);
+        await loadPortalData("", data.staff);
+      })
+      .catch((sessionError) => {
+        if (sessionError.status === 401) onLock?.();
+      });
   }, []);
 
   const selectedAssignment =
@@ -177,7 +184,7 @@ export default function StaffPortal() {
     filteredSubmissions[0] ||
     null;
 
-  function lockPortal() {
+  function clearPortal() {
     window.sessionStorage.removeItem(STAFF_CODE_KEY);
     setCode("");
     setDraftCode("");
@@ -187,11 +194,30 @@ export default function StaffPortal() {
     setSubmissions([]);
     setAssignmentDraft(null);
     setTeacherDraft(null);
+    setIssuedStudent(null);
+    setStudentInvite({ firstName: "", lastName: "", email: "" });
+    setSelectedAssignmentId("");
+    setSelectedSubmissionId("");
+    setSearch("");
     setError("");
     setNotice("");
+    onLock?.();
+  }
+
+  async function lockPortal() {
+    setLoading(true);
+    setError("");
+    try {
+      await post("/api/staff-auth", { action: "logout" });
+      clearPortal();
+    } catch (failure) {
+      if (failure.status === 401) clearPortal();
+      else setError("Sign-out was not confirmed. " + failure.message);
+    } finally { setLoading(false); }
   }
 
   function startAssignment(existing = null) {
+    setIssuedStudent(null);
     setAssignmentDraft(
       existing ? normalizeAssignment(existing) : blankAssignment(staff, teachers)
     );
@@ -217,27 +243,23 @@ export default function StaffPortal() {
           : "Assignment saved. Change its status to Open before posting the student link."
       );
     } catch (saveError) {
-      if (saveError.status === 401) lockPortal();
+      if (saveError.status === 401) clearPortal();
       setError(saveError.message || "The assignment could not be saved.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveTeacher() {
-    setLoading(true);
-    setError("");
+  async function issueStudent(event) {
+    event.preventDefault();
+    setLoading(true); setError("");
     try {
-      await post("/api/teachers", { action: "save", teacher: teacherDraft });
-      const teacherData = await post("/api/teachers", { action: "list" });
-      setTeachers(teacherData.teachers || []);
-      setTeacherDraft(null);
-      setNotice("Teacher account saved. New codes take effect immediately.");
-    } catch (saveError) {
-      setError(saveError.message || "The teacher account could not be saved.");
-    } finally {
-      setLoading(false);
-    }
+      const data = await post("/api/department", { action: "depth-student-invite", assignmentId: assignmentDraft.assignmentId, ...studentInvite });
+      setIssuedStudent({ code: data.code, identity: { ...studentInvite } });
+      setStudentInvite({ firstName: "", lastName: "", email: "" });
+      setNotice("Private individual student code issued. Deliver the code and assignment link to this student privately; no email was sent.");
+    } catch (failure) { if (failure.status === 401) clearPortal(); setError(failure.message); }
+    finally { setLoading(false); }
   }
 
   function studentUrl(assignment) {
@@ -307,11 +329,11 @@ export default function StaffPortal() {
         <section className="content-card staff-login-card">
           <div className="staff-lock-mark"><LogoMark /></div>
           <div>
-            <Pill tone="orange">Two-teacher pilot</Pill>
+            <Pill tone="orange">Department teachers</Pill>
             <h1>Open the EnDepth Teacher Portal.</h1>
             <p>
-              Morgan, Teacher 2, and the pilot administrator each use a different
-              private code. Teacher records are separated on the server.
+              Each approved teacher and the department administrator use an
+              individual private code. Teacher records are separated on the server.
             </p>
           </div>
           <form
@@ -345,14 +367,14 @@ export default function StaffPortal() {
         <div>
           <div className="banner-meta">
             <Pill tone={staff.role === "admin" ? "dark" : "orange"}>
-              {staff.role === "admin" ? "Pilot administrator" : "Teacher portal"}
+              {staff.role === "admin" ? "Department administrator" : "Teacher portal"}
             </Pill>
             <span>{staff.displayName}</span>
           </div>
           <h1>Build assignments once. Share one student link.</h1>
           <p>
             Assignment changes, teacher codes, student links, and records now live
-            in the database—routine pilot updates no longer require a code change or
+            in the database—routine department updates no longer require a code change or
             Vercel redeployment.
           </p>
         </div>
@@ -360,7 +382,7 @@ export default function StaffPortal() {
           <button className="secondary-button" type="button" onClick={() => loadPortalData()} disabled={loading}>
             Refresh portal <Icon name="rotate" />
           </button>
-          <button className="text-button" type="button" onClick={lockPortal}>Lock portal</button>
+          <button className="text-button" type="button" onClick={lockPortal} disabled={loading}>Lock portal</button>
         </div>
       </section>
 
@@ -385,14 +407,14 @@ export default function StaffPortal() {
       </nav>
 
       {notice ? <div className="inline-notice success-notice portal-notice">{notice}</div> : null}
-      {error ? <div className="inline-notice portal-notice">{error}</div> : null}
+      {error ? <div className="inline-notice portal-notice" role="alert">{error}</div> : null}
 
       {tab === "assignments" ? (
         <section className="portal-section">
           <div className="portal-section-heading">
             <div>
               <div className="card-kicker">Database-backed assignments</div>
-              <h2>{staff.role === "admin" ? "All pilot assignments" : "Your pilot assignments"}</h2>
+              <h2>{staff.role === "admin" ? "All department assignments" : "Your department assignments"}</h2>
             </div>
             <button className="primary-button" type="button" onClick={() => startAssignment()}>
               Create assignment <Icon name="arrow" />
@@ -451,7 +473,7 @@ export default function StaffPortal() {
             <div className="pilot-limits-row">
               <Pill tone="orange">4 live coach questions</Pill>
               <Pill tone="neutral">17-student section limit</Pill>
-              <span>Fixed for the first two-teacher pilot.</span>
+              <span>Fixed limits for each department assignment.</span>
             </div>
             <div className="portal-form-grid">
               {staff.role === "admin" ? (
@@ -459,6 +481,7 @@ export default function StaffPortal() {
                   <span>Assigned teacher</span>
                   <select
                     value={assignmentDraft.teacherId}
+                    disabled={Boolean(assignmentDraft.assignmentId)}
                     onChange={(event) => {
                       const teacher = teachers.find((item) => item.teacherId === event.target.value);
                       setAssignmentDraft((current) => ({
@@ -497,6 +520,8 @@ export default function StaffPortal() {
               ) : null}
             </div>
             {assignmentDraft.publicSlug ? <div className="share-link-box"><span>Student link</span><code>{studentUrl(assignmentDraft)}</code></div> : null}
+            {assignmentDraft.assignmentId && !assignmentDraft.sandbox ? <details className="department-student-access"><summary>Issue individual student access</summary><form onSubmit={issueStudent}><p>Each student needs a private code and the assignment link. Existing student records are preserved. Reissuing for the same assignment and email revokes that student’s previous access.</p><div className="portal-form-grid">{[["firstName", "Student first name"], ["lastName", "Student last name"], ["email", "Student email"]].map(([field, label]) => <label key={field}><span>{label}</span><input required type={field === "email" ? "email" : "text"} maxLength={field === "email" ? 254 : 80} value={studentInvite[field]} onChange={(event) => setStudentInvite((current) => ({ ...current, [field]: event.target.value }))} /></label>)}</div><button type="submit" className="primary-button" disabled={loading}>Issue private student code</button></form></details> : null}
+            {issuedStudent ? <section className="content-card department-student-credential" role="status"><h3>Private student access</h3><p>For {issuedStudent.identity.firstName} {issuedStudent.identity.lastName} · {issuedStudent.identity.email}. Deliver individually using an approved private channel.</p><input aria-label="Private student code" readOnly value={issuedStudent.code || ""} onFocus={(event) => event.target.select()} /><p><a href={studentUrl(assignmentDraft)}>Student assignment link</a>. No email was sent.</p><button type="button" className="secondary-button" onClick={() => setIssuedStudent(null)}>I have recorded it privately — dismiss</button></section> : null}
           </div>
         </section>
       ) : null}
@@ -553,29 +578,7 @@ export default function StaffPortal() {
         </section>
       ) : null}
 
-      {tab === "teachers" && staff.role === "admin" ? (
-        <section className="portal-section">
-          <div className="portal-section-heading"><div><div className="card-kicker">Admin controls</div><h2>Teacher accounts and code rotation</h2></div><button className="primary-button" type="button" onClick={() => setTeacherDraft({ teacherId: "", displayName: "", email: "", slug: "", newCode: "", active: true })}>Add teacher</button></div>
-          <div className="teacher-account-grid">
-            <div className="content-card teacher-account-list">
-              {teachers.map((teacher) => <button className="teacher-account-row" type="button" key={teacher.teacherId} onClick={() => setTeacherDraft({ ...teacher, newCode: "" })}><div><strong>{teacher.displayName}</strong><span>{teacher.email || "No email added"}</span></div><Pill tone={teacher.active ? "green" : "neutral"}>{teacher.active ? "Active" : "Inactive"}</Pill></button>)}
-            </div>
-            <div className="content-card teacher-account-editor">
-              {teacherDraft ? (
-                <>
-                  <div className="card-kicker">{teacherDraft.teacherId ? "Edit teacher" : "New teacher"}</div><h3>{teacherDraft.displayName || "Teacher account"}</h3>
-                  <label><span>Display name</span><input value={teacherDraft.displayName} onChange={(event) => setTeacherDraft((current) => ({ ...current, displayName: event.target.value }))} /></label>
-                  <label><span>Teacher email</span><input type="email" value={teacherDraft.email} onChange={(event) => setTeacherDraft((current) => ({ ...current, email: event.target.value }))} /></label>
-                  <label><span>Account slug</span><input value={teacherDraft.slug} onChange={(event) => setTeacherDraft((current) => ({ ...current, slug: event.target.value }))} /></label>
-                  <label><span>{teacherDraft.teacherId ? "New code (leave blank to keep current)" : "Teacher code"}</span><input type="password" value={teacherDraft.newCode} onChange={(event) => setTeacherDraft((current) => ({ ...current, newCode: event.target.value }))} /></label>
-                  <label className="account-active-toggle"><input type="checkbox" checked={teacherDraft.active !== false} onChange={(event) => setTeacherDraft((current) => ({ ...current, active: event.target.checked }))} /><span>Active teacher account</span></label>
-                  <button className="primary-button" type="button" onClick={saveTeacher} disabled={loading}>Save teacher account</button>
-                </>
-              ) : <div className="empty-detail"><Icon name="users" size={30} /><h3>Select a teacher</h3><p>Rename Teacher 2, add their email, or rotate a teacher code without redeploying EnDepth.</p></div>}
-            </div>
-          </div>
-        </section>
-      ) : null}
+      {tab === "teachers" && staff.role === "admin" ? <div className="content-card"><p>Manage approved accounts, generate individual credentials, and disable access in the Department portal.</p><a href="/?tool=department">Department account management</a></div> : null}
     </main>
   );
 }

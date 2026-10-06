@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import StudentWorkspace from "./StudentWorkspace";
 import { Icon, Pill } from "./endepthUI";
 import {
-  PILOT_CODE_STORAGE_KEY,
   stableAssignmentKey,
   studentStorageKey,
   wordCount,
@@ -70,13 +69,16 @@ export default function StudentSubmissionFlow({
   resetToken,
   assignment,
   demoMode = false,
+  authenticatedStudent = null,
 }) {
   const assignmentSignature = stableAssignmentKey(assignment);
   const submissionMetaKey = useMemo(
-    () => `${SUBMISSION_META_PREFIX}:${shortHash(assignmentSignature)}`,
-    [assignmentSignature]
+    () => `${SUBMISSION_META_PREFIX}:${shortHash(assignmentSignature)}:${authenticatedStudent?.studentId || (assignment.sandbox ? `sandbox:${assignment.teacherId}` : "preview")}`,
+    [assignmentSignature, authenticatedStudent?.studentId, assignment.sandbox, assignment.teacherId]
   );
   const savedIdentity = useMemo(() => {
+    if (authenticatedStudent) return authenticatedStudent;
+    if(assignment.sandbox)return {firstName:"Example",lastName:"Learner",email:"fictional@example.invalid"};
     if (demoMode || typeof window === "undefined") {
       return { firstName: "", lastName: "", email: "" };
     }
@@ -88,7 +90,7 @@ export default function StudentSubmissionFlow({
     } catch {
       return { firstName: "", lastName: "", email: "" };
     }
-  }, [demoMode]);
+  }, [demoMode, assignment.sandbox, authenticatedStudent]);
 
   const [firstName, setFirstName] = useState(savedIdentity.firstName || "");
   const [lastName, setLastName] = useState(savedIdentity.lastName || "");
@@ -122,7 +124,7 @@ export default function StudentSubmissionFlow({
   }, [resetToken, submissionMetaKey, demoMode]);
 
   useEffect(() => {
-    if (demoMode) return;
+    if (demoMode || assignment.sandbox || authenticatedStudent) return;
     try {
       window.sessionStorage.setItem(
         IDENTITY_STORAGE_KEY,
@@ -132,20 +134,6 @@ export default function StudentSubmissionFlow({
       // Identity fields still work without browser storage.
     }
   }, [firstName, lastName, email, demoMode]);
-
-  function requestPilotCode() {
-    const currentCode = window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY) || "";
-    const entered = window.prompt(
-      "Enter the EnDepth student pilot code before submitting.",
-      currentCode
-    );
-    if (entered === null) return "";
-    const cleanCode = entered.trim();
-    if (cleanCode) {
-      window.sessionStorage.setItem(PILOT_CODE_STORAGE_KEY, cleanCode);
-    }
-    return cleanCode;
-  }
 
   async function submitPreparation() {
     if (demoMode) return;
@@ -168,11 +156,9 @@ export default function StudentSubmissionFlow({
       return;
     }
 
-    const accessCode =
-      window.sessionStorage.getItem(PILOT_CODE_STORAGE_KEY)?.trim() ||
-      requestPilotCode();
+    const accessCode = assignment.sandbox ? "owned-test-session" : authenticatedStudent ? "individual-session" : "";
     if (!accessCode) {
-      setSubmissionError("The student pilot code is required to submit.");
+      setSubmissionError("Sign in with the individual student code your teacher provided.");
       return;
     }
 
@@ -213,7 +199,7 @@ export default function StudentSubmissionFlow({
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         if (response.status === 401) {
-          window.sessionStorage.removeItem(PILOT_CODE_STORAGE_KEY);
+          window.dispatchEvent(new Event("depth-session-invalid"));
         }
         throw new Error(data.error || "Your preparation could not be submitted.");
       }
@@ -256,7 +242,7 @@ export default function StudentSubmissionFlow({
               <p>
                 Your name and student email are attached to the classroom record
                 your teacher receives. Neither is included in requests sent to the
-                AI coach.
+                AI coach. Academic writing is processed by the AI provider for live checks and may contain identifying details.
               </p>
             </div>
           </div>
@@ -266,6 +252,7 @@ export default function StudentSubmissionFlow({
               <input
                 autoComplete="given-name"
                 value={firstName}
+                readOnly={Boolean(authenticatedStudent)}
                 onChange={(event) => setFirstName(event.target.value)}
                 maxLength={80}
               />
@@ -275,6 +262,7 @@ export default function StudentSubmissionFlow({
               <input
                 autoComplete="family-name"
                 value={lastName}
+                readOnly={Boolean(authenticatedStudent)}
                 onChange={(event) => setLastName(event.target.value)}
                 maxLength={80}
               />
@@ -285,6 +273,7 @@ export default function StudentSubmissionFlow({
                 type="email"
                 autoComplete="email"
                 value={email}
+                readOnly={Boolean(authenticatedStudent)}
                 onChange={(event) => setEmail(event.target.value)}
                 maxLength={254}
                 placeholder="student@school.org"
