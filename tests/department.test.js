@@ -86,6 +86,19 @@ test("shared sessions preserve legacy IDs, records, credentials and links; appro
     "",
     sql,
   );
+  await sql`INSERT INTO endepth_teachers(teacher_id,slug,display_name,email,code_salt,code_hash,active,activation_state,auth_scheme)
+    VALUES('synthetic-slug-collision','approved-crumpk','Existing synthetic teacher','existing@example.invalid','preserved-salt','preserved-hash',FALSE,'disabled','scrypt')`;
+  const beforeConflict =
+    await sql`SELECT * FROM endepth_teachers ORDER BY teacher_id`;
+  const blocked = await call(endpoint, { action: "onboard" }, admin.cookie);
+  assert.equal(blocked.status, 409);
+  assert.match(blocked.data.error, /slug.*crumpk@ensworth\.com/);
+  assert.deepEqual(
+    await sql`SELECT * FROM endepth_teachers ORDER BY teacher_id`,
+    beforeConflict,
+    "Roster conflicts must preserve every existing ID, credential and activation state without partial onboarding",
+  );
+  await sql`DELETE FROM endepth_teachers WHERE teacher_id='synthetic-slug-collision'`;
   await security.onboard(sql);
   await security.onboard(sql);
   assert.deepEqual(

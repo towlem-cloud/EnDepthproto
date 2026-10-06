@@ -230,7 +230,15 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
 
     const savedPassage =
       "The fictional garden gives neighbors a shared responsibility, but it also exposes disagreement about priorities.";
-    await page.getByLabel("Exact passage from saved draft", { exact: true }).fill(savedPassage);
+    const draftEditor = page.getByLabel("Working / final draft", { exact: true });
+    await draftEditor.focus();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Control+Shift+End");
+    await page.getByRole("button", { name: "Use selected passage", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Exact passage from saved draft", { exact: true }).inputValue(),
+      savedPassage,
+    );
     await page.getByLabel("My focused question", { exact: true }).fill("Which causal link needs evidence?");
     result = coachResponse();
     await page.getByRole("button", { name: "Request live check", exact: true }).click();
@@ -348,6 +356,54 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     assert.equal((await logoutResponse).status(),200);
     assert.equal((await sql`SELECT count(*)::int AS n FROM department_sessions`)[0].n,0);
     await page.reload();await page.getByRole('heading',{name:'Approved staff sign-in',exact:true}).waitFor();
+    await page.getByLabel("Individual teacher or administrator code").fill(
+      process.env.ENDEPTH_TEACHER_CODE,
+    );
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", {
+      name: "Try EnScribe — fictional example", exact: true,
+    }).click();
+    const fictionalWorkspace = page.getByRole("link", {
+      name: "Open fictional workspace", exact: true,
+    });
+    await fictionalWorkspace.waitFor();
+    const fictionalUrl = new URL(await fictionalWorkspace.getAttribute("href"));
+    assert.equal(fictionalUrl.origin, "https://synthetic.test");
+    assert.equal(fictionalUrl.searchParams.get("tool"), "enscribe");
+    assert.match(fictionalUrl.hash, /^#access=/);
+    const opened = context.waitForEvent("page");
+    await fictionalWorkspace.click();
+    const examplePage = await opened;
+    await examplePage.getByLabel("Working / final draft", { exact: true }).waitFor();
+    assert.ok((await examplePage.getByLabel("Working / final draft", { exact: true }).inputValue()).length);
+    await examplePage.close();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.getByLabel("Individual teacher or administrator code").fill(
+      process.env.ENDEPTH_ADMIN_CODE,
+    );
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    const preservedTeacher = await sql`SELECT teacher_id,code_hash,active,activation_state,credential_version FROM endepth_teachers WHERE slug='morgan-towle'`;
+    await page.getByRole("button", {
+      name: "Add approved roster without changing existing accounts", exact: true,
+    }).click();
+    const activeTeacher = page.locator("article").filter({ hasText: "towlem@ensworth.com" });
+    await activeTeacher.getByText("Replace active teacher code", { exact: true }).waitFor();
+    assert.equal(await activeTeacher.getByRole("button", {
+      name: "Replace existing code & revoke sessions", exact: true,
+    }).isVisible(), false);
+    const awaitingTeacher = page.locator("article").filter({ hasText: "marksd@ensworth.com" });
+    await awaitingTeacher.getByRole("button", {
+      name: "Activate & issue individual code", exact: true,
+    }).click();
+    await page.getByLabel("Private credential or link").waitFor();
+    const teacherCode = await page.getByLabel("Private credential or link").inputValue();
+    assert.match(teacherCode, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(await fictionalWorkspace.count(), 0);
+    await awaitingTeacher.getByText("Replace active teacher code", { exact: true }).waitFor();
+    assert.deepEqual(
+      await sql`SELECT teacher_id,code_hash,active,activation_state,credential_version FROM endepth_teachers WHERE slug='morgan-towle'`,
+      preservedTeacher,
+    );
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

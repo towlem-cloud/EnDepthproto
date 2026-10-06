@@ -28,12 +28,12 @@ export default function DepartmentPortal() {
       email: "",
       original: "",
     }),
-    [oneTime, setOneTime] = useState(""),
+    [oneTime, setOneTime] = useState(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   function clearStaff() {
     setStaff(null);
-    setOneTime("");
+    setOneTime(null);
     setStudents([]);
     setAssignments([]);
     setTeachers([]);
@@ -80,7 +80,13 @@ export default function DepartmentPortal() {
     setStudents(
       (await post("writing-records", { assignmentId: a.id })).students,
     );
-    setOneTime("");
+    setOneTime(null);
+  }
+  async function issueTeacherCode(teacherId) {
+    const d = await post("rotate", { teacherId });
+    setModule("desk");
+    setOneTime({ kind: "credential", value: d.newCode });
+    await refresh();
   }
   const field = (key, label, large = false) => (
     <label key={key}>
@@ -101,11 +107,22 @@ export default function DepartmentPortal() {
   );
   return (
     <main className="department">
-      <header>
-        <a href="/">EnDepth home</a>
+      <header className="department-masthead">
+        <a href="/" className="department-brand" aria-label="EnDepth home">
+          <span className="department-brand-mark">E</span>
+          <span><strong>ENSWORTH</strong><small>ENGLISH DEPARTMENT</small></span>
+        </a>
+        <div className="department-product">
+          En<span>Scribe</span><span className="department-product-divider" />EnDepth
+        </div>
+        <span className="department-access-label">Approved staff</span>
+      </header>
+      <div className="department-body">
+      <div className="department-page-heading">
+        <p className="department-eyebrow">English department</p>
         <h1>Department writing & discussion</h1>
         <p>Your thinking. Your writing.</p>
-      </header>
+      </div>
       {error && (
         <p role="alert" className="notice">
           {error}
@@ -139,17 +156,21 @@ export default function DepartmentPortal() {
         </form>
       ) : (
         <>
-          <div className="toolbar">
+          <div className="toolbar department-navigation">
             <strong>{staff.displayName}</strong>
             <button
+              aria-pressed={module === "desk"}
               onClick={() => {
                 setModule("desk");
-                setOneTime("");
+                setOneTime(null);
               }}
             >
               EnScribe Writing Studio
             </button>
-            <button onClick={() => setModule("depth")}>
+            <button aria-pressed={module === "depth"} onClick={() => {
+              setModule("depth");
+              setOneTime(null);
+            }}>
               EnDepth Teacher Desk
             </button>
             <button
@@ -198,7 +219,10 @@ export default function DepartmentPortal() {
                   onClick={() =>
                     run(async () => {
                       const d = await post("writing-test");
-                      setOneTime(location.origin + d.studentPath);
+                      setOneTime({
+                        kind: "fictional",
+                        value: location.origin + d.studentPath,
+                      });
                       await refresh();
                     })
                   }
@@ -210,7 +234,10 @@ export default function DepartmentPortal() {
                   onClick={() =>
                     run(async () => {
                       const d = await post("depth-test");
-                      setOneTime(location.origin + d.studentPath);
+                      setOneTime({
+                        kind: "fictional",
+                        value: location.origin + d.studentPath,
+                      });
                     })
                   }
                 >
@@ -219,17 +246,32 @@ export default function DepartmentPortal() {
               </div>
               {oneTime && (
                 <section className="notice">
-                  <h3>Private credential or access link — shown once</h3>
+                  <h3>
+                    {oneTime.kind === "fictional"
+                      ? "Your fictional example workspace"
+                      : oneTime.kind === "credential"
+                        ? "Individual staff code — shown once"
+                        : "Private student access link — shown once"}
+                  </h3>
                   <input
                     aria-label="Private credential or link"
                     readOnly
-                    value={oneTime}
+                    value={oneTime.value}
                   />
-                  <p>
-                    Copy and deliver privately to the intended recipient. No
-                    invitation email was sent. Treat this as a password.
-                  </p>
-                  <button onClick={() => setOneTime("")}>Dismiss</button>
+                  {oneTime.kind === "fictional" ? (
+                    <>
+                      <p>Open the example to try the student workflow. This workspace contains fictional material.</p>
+                      <a href={oneTime.value} target="_blank" rel="noopener noreferrer">
+                        Open fictional workspace
+                      </a>
+                    </>
+                  ) : (
+                    <p>
+                      Copy and deliver privately to the intended recipient. No
+                      invitation email was sent. Treat this as a password.
+                    </p>
+                  )}
+                  <button onClick={() => setOneTime(null)}>Dismiss</button>
                 </section>
               )}
               {draft && (
@@ -420,7 +462,7 @@ export default function DepartmentPortal() {
                               original: "",
                             });
                             await records(selected);
-                            setOneTime(location.origin + d.studentPath);
+                            setOneTime({ kind: "access", value: location.origin + d.studentPath });
                           })
                         }
                       >
@@ -486,7 +528,7 @@ export default function DepartmentPortal() {
                               assignmentId: selected.id,
                               studentId: s.id,
                             });
-                            setOneTime(location.origin + d.studentPath);
+                            setOneTime({ kind: "access", value: location.origin + d.studentPath });
                           })
                         }
                       >
@@ -533,8 +575,10 @@ export default function DepartmentPortal() {
             <section>
               <h2>Approved teacher accounts</h2>
               <p>
-                Preserve existing credentials. Activate only by issuing an
-                individual random code. Share it privately; no email is sent.
+                Add the approved roster, then activate accounts awaiting activation
+                with individual random codes. Active accounts keep their current
+                credentials unless you deliberately replace them. Share each new
+                code privately; no email is sent.
               </p>
               <button
                 disabled={busy}
@@ -559,20 +603,31 @@ export default function DepartmentPortal() {
                         : "disabled"}
                   </p>
                   <div className="toolbar">
-                    <button
-                      disabled={busy}
-                      onClick={() =>
-                        run(async () => {
-                          const d = await post("rotate", {
-                            teacherId: t.teacher_id,
-                          });
-                          setOneTime(d.newCode);
-                          await refresh();
-                        })
-                      }
-                    >
-                      Issue / rotate individual code
-                    </button>
+                    {t.active ? (
+                      <details>
+                        <summary>Replace active teacher code</summary>
+                        <p>The current code will stop working and this teacher's signed-in sessions will end.</p>
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            run(() => issueTeacherCode(t.teacher_id))
+                          }
+                        >
+                          Replace existing code & revoke sessions
+                        </button>
+                      </details>
+                    ) : (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          run(() => issueTeacherCode(t.teacher_id))
+                        }
+                      >
+                        {t.activation_state === "awaiting activation"
+                          ? "Activate & issue individual code"
+                          : "Reactivate & issue new code"}
+                      </button>
+                    )}
                     <button
                       disabled={busy}
                       onClick={() =>
@@ -608,7 +663,8 @@ export default function DepartmentPortal() {
                 onClick={() =>
                   run(async () => {
                     const d = await post("admin-rotate");
-                    setOneTime(d.newCode);
+                    setModule("desk");
+                    setOneTime({ kind: "credential", value: d.newCode });
                   })
                 }
               >
@@ -618,6 +674,7 @@ export default function DepartmentPortal() {
           )}
         </>
       )}
+      </div>
     </main>
   );
 }

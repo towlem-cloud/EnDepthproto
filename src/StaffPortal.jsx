@@ -289,11 +289,11 @@ export default function StaffPortal({ onLock } = {}) {
         <section className="content-card staff-login-card">
           <div className="staff-lock-mark"><LogoMark /></div>
           <div>
-            <Pill tone="orange">Two-teacher pilot</Pill>
+            <Pill tone="orange">Department teachers</Pill>
             <h1>Open the EnDepth Teacher Portal.</h1>
             <p>
-              Morgan, Teacher 2, and the pilot administrator each use a different
-              private code. Teacher records are separated on the server.
+              Each approved teacher and the department administrator use an
+              individual private code. Teacher records are separated on the server.
             </p>
           </div>
           <form
@@ -327,14 +327,14 @@ export default function StaffPortal({ onLock } = {}) {
         <div>
           <div className="banner-meta">
             <Pill tone={staff.role === "admin" ? "dark" : "orange"}>
-              {staff.role === "admin" ? "Pilot administrator" : "Teacher portal"}
+              {staff.role === "admin" ? "Department administrator" : "Teacher portal"}
             </Pill>
             <span>{staff.displayName}</span>
           </div>
           <h1>Build assignments once. Share one student link.</h1>
           <p>
             Assignment changes, teacher codes, student links, and records now live
-            in the database—routine pilot updates no longer require a code change or
+            in the database—routine department updates no longer require a code change or
             Vercel redeployment.
           </p>
         </div>
