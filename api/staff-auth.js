@@ -1,36 +1,50 @@
 import {
-  authenticateStaffCode,
-  databaseIsConfigured,
-  json,
-} from "./submissions-db.js";
-import { backfillLegacySubmissionOwnership } from "./ownership-maintenance.js";
-
+  database,
+  sameOrigin,
+  session,
+  login,
+  logout,
+  HttpError,
+} from "../lib/department-security.js";
 export default {
   async fetch(request) {
-    if (request.method !== "POST") {
-      return json({ error: "Use POST for this endpoint." }, 405);
-    }
-    if (!databaseIsConfigured()) {
-      return json({ error: "The EnDepth pilot database is not connected." }, 503);
-    }
-
-    let body = {};
     try {
-      body = await request.json();
-    } catch {
-      body = {};
-    }
-
-    try {
-      const staff = await authenticateStaffCode(body.code);
-      if (!staff) {
-        return json({ error: "That teacher or admin code was not accepted." }, 401);
-      }
-      await backfillLegacySubmissionOwnership();
-      return json({ staff });
+      if (request.method !== "POST") throw new HttpError(405, "Use POST.");
+      sameOrigin(request);
+      const sql = await database();
+      const body = await request.json();
+      if (body.action === "logout")
+        return Response.json(
+          { ok: true },
+          {
+            headers: {
+              "Set-Cookie": await logout(request, sql),
+              "Cache-Control": "no-store",
+            },
+          },
+        );
+      if (body.action === "session")
+        return Response.json(
+          { staff: await session(request, sql) },
+          { headers: { "Cache-Control": "no-store" } },
+        );
+      const result = await login(request, body.code, body.email, sql);
+      return Response.json(
+        { staff: result.staff },
+        {
+          headers: { "Set-Cookie": result.cookie, "Cache-Control": "no-store" },
+        },
+      );
     } catch (error) {
-      console.error("EnDepth staff authentication failed", error);
-      return json({ error: "EnDepth could not verify staff access." }, 500);
+      return Response.json(
+        {
+          error: error.status ? error.message : "Staff access is unavailable.",
+        },
+        {
+          status: error.status || 503,
+          headers: { "Cache-Control": "no-store" },
+        },
+      );
     }
   },
 };

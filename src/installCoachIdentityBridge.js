@@ -44,6 +44,10 @@ export function installCoachIdentityBridge() {
         const assignmentId = body?.assignment?.assignmentId;
         if (body && assignmentId) {
           body.assignmentId = assignmentId;
+          // Deterministic academic fingerprint makes identical retries return the cached exchange.
+          const academic=JSON.stringify({initialResponse:body.initialResponse,selectedMove:body.selectedMove,evidence:body.evidence,significance:body.significance,messages:body.messages});
+          const fingerprint=await window.crypto.subtle.digest("SHA-256",new TextEncoder().encode(academic));
+          body.requestId=Array.from(new Uint8Array(fingerprint)).map(b=>b.toString(16).padStart(2,"0")).join("");
           body.studentCoachKey = await studentCoachKey(assignmentId);
           return nativeFetch(input, {
             ...init,
