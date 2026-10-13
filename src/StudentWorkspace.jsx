@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  MIN_INITIAL_RESPONSE_WORDS,
+  initialResponseMeetsMinimum,
+} from "../lib/depth-response-policy.js";
+import {
   FieldHeader,
   Icon,
   LogoMark,
@@ -23,7 +27,7 @@ export default function StudentWorkspace({ resetToken, assignment }) {
   const initialState = useRef(loadStudentState(assignment)).current;
 
   const [initialResponse, setInitialResponse] = useState(initialState.initialResponse);
-  const [coachUnlocked, setCoachUnlocked] = useState(initialState.coachUnlocked);
+  const coachUnlocked = initialResponseMeetsMinimum(initialResponse);
   const [messages, setMessages] = useState(initialState.messages);
   const [newMessage, setNewMessage] = useState(initialState.newMessage);
   const [selectedMove, setSelectedMove] = useState(initialState.selectedMove);
@@ -43,7 +47,6 @@ export default function StudentWorkspace({ resetToken, assignment }) {
 
   function applyStudentState(nextState, nextNotice = "") {
     setInitialResponse(nextState.initialResponse);
-    setCoachUnlocked(nextState.coachUnlocked);
     setMessages(nextState.messages.map((message) => ({ ...message })));
     setNewMessage(nextState.newMessage);
     setSelectedMove(nextState.selectedMove);
@@ -129,8 +132,22 @@ export default function StudentWorkspace({ resetToken, assignment }) {
   ]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length > 1) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
+
+  useEffect(() => {
+    if (!coachUnlocked || messages.length || hydratedSignature !== assignmentSignature) return;
+    setMessages((current) => current.length ? current : [
+      {
+        id: Date.now(),
+        role: "coach",
+        move: "Clarify the claim",
+        text: "Which part of your interpretation feels least settled, and what exact detail is creating that uncertainty?",
+      },
+    ]);
+  }, [coachUnlocked, messages.length, hydratedSignature, assignmentSignature]);
 
   const snapshot = useMemo(
     () =>
@@ -156,7 +173,7 @@ export default function StudentWorkspace({ resetToken, assignment }) {
 
   const readiness = useMemo(
     () => ({
-      initial: wordCount(initialResponse) >= 40,
+      initial: initialResponseMeetsMinimum(initialResponse),
       evidence: wordCount(evidence) >= 8 && wordCount(significance) >= 8,
       complication: wordCount(complication) >= 8,
       card:
@@ -175,30 +192,9 @@ export default function StudentWorkspace({ resetToken, assignment }) {
   const coachLimitReached =
     successfulCoachQuestions >= assignment.maxCoachQuestions;
 
-  function unlockCoach() {
-    if (wordCount(initialResponse) < 40) {
-      setNotice(
-        "Write at least 40 words of your own thinking before opening the coach."
-      );
-      return;
-    }
-    setCoachUnlocked(true);
-    setNotice("");
-    if (messages.length === 0) {
-      setMessages([
-        {
-          id: Date.now(),
-          role: "coach",
-          move: "Clarify the claim",
-          text: "Which part of your interpretation feels least settled, and what exact detail is creating that uncertainty?",
-        },
-      ]);
-    }
-  }
-
   async function sendMessage() {
     const text = newMessage.trim();
-    if (!text || isCoachThinking || coachLimitReached) return;
+    if (!coachUnlocked || !text || isCoachThinking || coachLimitReached) return;
 
     const accessCode = assignment.sandbox ? "owned-test-session" : assignment._studentId ? "individual-session" : "";
     if (!accessCode) return;
@@ -340,10 +336,11 @@ export default function StudentWorkspace({ resetToken, assignment }) {
                 label="Initial response"
                 helper="What do you notice, suspect, or find difficult to explain?"
                 value={initialResponse}
-                minimum={40}
+                minimum={MIN_INITIAL_RESPONSE_WORDS}
               />
               <textarea
                 className="large-textarea"
+                aria-label="Initial response"
                 value={initialResponse}
                 onChange={(event) => setInitialResponse(event.target.value)}
                 rows={7}
@@ -353,13 +350,13 @@ export default function StudentWorkspace({ resetToken, assignment }) {
                   Your first version remains visible so you and your teacher can
                   see how the thinking changes.
                 </span>
-                {!coachUnlocked ? (
-                  <button className="primary-button compact" type="button" onClick={unlockCoach}>
-                    Open the coach <Icon name="arrow" />
-                  </button>
-                ) : (
-                  <span className="unlocked-label"><Icon name="check" /> Coach unlocked</span>
-                )}
+                <span className="unlocked-label" role="status">
+                  {coachUnlocked ? (
+                    <><Icon name="check" /> Coach unlocked automatically</>
+                  ) : (
+                    `Coaching opens automatically after at least ${MIN_INITIAL_RESPONSE_WORDS} words.`
+                  )}
+                </span>
               </div>
               {notice ? <div className="inline-notice">{notice}</div> : null}
             </div>

@@ -64,8 +64,9 @@ const academic = {
   significance: "A shared responsibility can conceal different expectations.", claim: "The disagreement complicates the initial cooperation.",
   complication: "Sharing a space does not imply identical priorities.", openQuestion: "What does their disagreement establish?", messages: [],
 };
+const initialCoachDraft = "The fictional garden gives neighbors a shared responsibility, but it also exposes disagreement about priorities. Residents must decide who benefits from the shared space, whose preferences guide decisions, and whether working together changes relationships beyond the garden's immediate physical boundaries.";
 const coachBody = (a, requestId) => ({ assignmentId: a.assignmentId, requestId,
-  ...academic, selectedMove: "complicate", messages: [{ role: "student", text: "How can I test the tension in this reading?" }],
+  ...academic, initialResponse: initialCoachDraft, selectedMove: "complicate", messages: [{ role: "student", text: "How can I test the tension in this reading?" }],
   accessCode: process.env.ENDEPTH_ACCESS_CODE, studentCoachKey: security.digest(secret()),
   firstName: "ForgedIdentity", email: "forged-student@example.invalid", invitationToken: "private-invitation-marker" });
 function mockProvider(t, responses) {
@@ -154,6 +155,42 @@ test("submissions ignore forged email/ID and preserve existing records; rotation
   await assert.rejects(access.submitDepthStudent(sql, stale, academic), /STUDENT_ACCESS_CHANGED/);
   assert.equal((await call(submissionApi, body, firstSession.cookie)).status, 401);
   assert.equal((await sql`SELECT initial_response FROM endepth_submissions WHERE submission_id=${submitted.data.submissionId}`)[0].initial_response, "My own changed synthetic thinking.");
+});
+
+test("coach requires forty initial-response words after authentication and before provider or quota side effects", async (t) => {
+  const a = await assignment(), invitation = await invite(a), signedIn = await login(a, invitation);
+  const payloads = mockProvider(t, [feedback]);
+  const words = initialCoachDraft.split(/\s+/);
+  assert.equal(words.length, 40);
+  const body = coachBody(a, "synthetic_word_boundary_01");
+  const short = { ...body, initialResponse: words.slice(0, 39).join(" ") };
+  const state = async () => ({
+    usage: await sql`SELECT * FROM endepth_coach_usage WHERE assignment_id=${a.assignmentId} ORDER BY student_email`,
+    requests: await sql`SELECT * FROM endepth_coach_requests WHERE assignment_id=${a.assignmentId} ORDER BY request_id`,
+    limits: await sql`SELECT * FROM department_rate_limits WHERE bucket LIKE ${"depth-coach:" + a.assignmentId + ":%"} ORDER BY bucket`,
+  });
+  const before = await state();
+  const longUnauthenticated = { ...body, initialResponse: initialCoachDraft + " This further observation raises another question about which residents influence the shared decisions." };
+  assert.equal((await call(coachApi, { ...longUnauthenticated, accessCode: "" })).status, 401);
+  assert.equal((await call(coachApi, longUnauthenticated)).status, 401);
+  assert.equal((await call(coachApi, short)).status, 401);
+  const rejected = await call(coachApi, short, signedIn.cookie);
+  assert.equal(rejected.status, 400);
+  assert.match(rejected.data.error, /40 words/);
+  assert.equal(payloads.length, 0);
+  assert.deepEqual(await state(), before);
+
+  // Reusing the corrected request ID succeeds because the rejected draft was not reserved.
+  const accepted = await call(coachApi, body, signedIn.cookie);
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.data.usage.successfulQuestions, 1);
+  assert.ok(payloads.some((payload) => payload.instructions));
+  const afterSuccess = await state(), providerCalls = payloads.length;
+  assert.equal(afterSuccess.usage[0].successful_count, 1);
+  assert.equal(afterSuccess.requests.length, 1);
+  assert.equal((await call(coachApi, { ...short, requestId: "synthetic_word_boundary_02" }, signedIn.cookie)).status, 400);
+  assert.equal(payloads.length, providerCalls);
+  assert.deepEqual(await state(), afterSuccess);
 });
 
 test("coach ignores arbitrary client keys and identities, rejects incomplete/refused/empty output, and retries without extra charges", async (t) => {

@@ -414,6 +414,30 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     await examplePage.getByLabel("Working / final draft", { exact: true }).waitFor();
     assert.ok((await examplePage.getByLabel("Working / final draft", { exact: true }).inputValue()).length);
     await examplePage.close();
+
+    const providerCallsBeforeDepthReset = provider.mock.callCount();
+    await page.getByRole("button", { name: "Try EnDepth — fictional example", exact: true }).click();
+    const depthExampleLink = page.getByRole("link", { name: "Open fictional workspace", exact: true })
+      .and(page.locator('a[href*="?assignment="]'));
+    await depthExampleLink.waitFor();
+    const openedDepthExample = context.waitForEvent("page");
+    await depthExampleLink.click();
+    const depthExamplePage = await openedDepthExample;
+    depthExamplePage.on("pageerror", (error) => errors.push(error.message));
+    const sandboxInitial = depthExamplePage.getByRole("textbox", { name: "Initial response", exact: true });
+    const starter = depthExamplePage.getByText("Which part of your interpretation feels least settled, and what exact detail is creating that uncertainty?", { exact: true });
+    await starter.waitFor();
+    assert.equal(await starter.count(), 1);
+    const sandboxOriginal = await sandboxInitial.inputValue();
+    await sandboxInitial.fill(sandboxOriginal + " SANDBOX-RESET-MARKER");
+    await depthExamplePage.getByRole("button", { name: "Reset my workspace", exact: true }).click();
+    await depthExamplePage.waitForFunction((original) => document.querySelector('[aria-label="Initial response"]')?.value === original, sandboxOriginal);
+    await starter.waitFor();
+    assert.equal(await starter.count(), 1);
+    await depthExamplePage.getByRole("heading", { name: "Use the Socratic coach", exact: true }).waitFor();
+    assert.equal(provider.mock.callCount(), providerCallsBeforeDepthReset);
+    await depthExamplePage.close();
+
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await page.getByLabel("Individual teacher or administrator code").fill(
       process.env.ENDEPTH_ADMIN_CODE,
@@ -540,6 +564,11 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     assert.equal(alpha.path, beta.path);
     const studentPage = await context.newPage();
     studentPage.on("pageerror", (error) => errors.push(error.message));
+    const studentDialogs = [];
+    studentPage.on("dialog", async (dialog) => {
+      studentDialogs.push(dialog.message());
+      await dialog.dismiss();
+    });
     await studentPage.goto(alpha.path);
     async function openDepthStudent(code, firstName) {
       await studentPage.getByLabel("Individual student access code", { exact: true }).fill(code);
@@ -559,6 +588,46 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     }
     await openDepthStudent(alpha.code, "Alpha");
     const alphaDraft = "ISOLATED-STUDENT-ALPHA notices that the fictional garden requires neighbors to share difficult choices about water, time, and space. Their common responsibility creates relationships, but those relationships do not always create agreement. Each decision reveals who can participate, whose needs matter, and what cooperation asks each person to give up.";
+    const alphaWords = alphaDraft.trim().split(/\s+/);
+    assert.ok(alphaWords.length > 40);
+    const shortInitialResponse = alphaWords.slice(0, 39).join(" ");
+    const readyInitialResponse = alphaWords.slice(0, 40).join(" ");
+    const initialResponse = studentPage.getByRole("textbox", { name: "Initial response", exact: true });
+    const depthCoach = studentPage.locator(".coach-section");
+    const providerCallsBeforeUnlock = provider.mock.callCount();
+
+    await initialResponse.fill(shortInitialResponse);
+    await depthCoach.waitFor({ state: "hidden" });
+    assert.equal(await studentPage.getByRole("button", { name: "Open the coach", exact: true }).count(), 0);
+
+    await initialResponse.fill(readyInitialResponse);
+    await studentPage.getByRole("heading", { name: "Use the Socratic coach", exact: true }).waitFor();
+    assert.equal(await studentPage.getByRole("button", { name: "Send thinking", exact: true }).count(), 1);
+    assert.equal(await studentPage.getByRole("button", { name: "Open the coach", exact: true }).count(), 0);
+    assert.equal(await studentPage.getByLabel("Individual student access code", { exact: true }).count(), 0);
+
+    await initialResponse.fill(shortInitialResponse);
+    await depthCoach.waitFor({ state: "hidden" });
+    await studentPage.waitForFunction((text) => Object.values(localStorage).some((value) => {
+      try { return JSON.parse(value).initialResponse === text; } catch { return false; }
+    }), shortInitialResponse);
+    const staleDraftKey = await studentPage.evaluate((text) => Object.keys(localStorage).find((key) => {
+      try { return JSON.parse(localStorage.getItem(key)).initialResponse === text; } catch { return false; }
+    }), shortInitialResponse);
+    assert.ok(staleDraftKey);
+    await studentPage.evaluate((key) => {
+      const saved = JSON.parse(localStorage.getItem(key));
+      localStorage.setItem(key, JSON.stringify({ ...saved, coachUnlocked: true }));
+    }, staleDraftKey);
+    await studentPage.reload();
+    await studentPage.getByLabel("First name", { exact: true }).waitFor();
+    assert.equal(await initialResponse.inputValue(), shortInitialResponse);
+    await depthCoach.waitFor({ state: "hidden" });
+    await initialResponse.fill(readyInitialResponse);
+    await studentPage.getByRole("heading", { name: "Use the Socratic coach", exact: true }).waitFor();
+    assert.equal(provider.mock.callCount(), providerCallsBeforeUnlock);
+    assert.deepEqual(studentDialogs, []);
+
     await studentPage.locator(".large-textarea").fill(alphaDraft);
     await studentPage.waitForFunction((text) => Object.values(localStorage).some((value) => {
       try { return JSON.parse(value).initialResponse === text; } catch { return false; }
@@ -566,6 +635,7 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     await studentPage.reload();
     await studentPage.getByLabel("First name", { exact: true }).waitFor();
     assert.equal(await studentPage.locator(".large-textarea").inputValue(), alphaDraft);
+    await studentPage.getByRole("heading", { name: "Use the Socratic coach", exact: true }).waitFor();
     await studentPage.locator(".field-stack textarea").nth(0).fill("Neighbors must decide who receives the last available water during a drought.");
     await studentPage.locator(".field-stack textarea").nth(1).fill("Their decision reveals competing needs within a shared task and a limited resource.");
     await studentPage.locator(".claim-field textarea").fill("A shared task can build relationships while exposing unequal priorities among neighbors in the garden.");
@@ -597,6 +667,7 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     await signOutDepth();
     await openDepthStudent(beta.code, "Beta");
     assert.equal(await studentPage.locator(".large-textarea").inputValue(), "");
+    await depthCoach.waitFor({ state: "hidden" });
     assert.equal(await studentPage.getByRole("button", { name: "Update submission", exact: true }).count(), 0);
     await studentPage.locator(".real-submit-card").getByText("Not yet submitted", { exact: true }).waitFor();
     assert.equal(await studentPage.getByText(/ISOLATED-STUDENT-ALPHA/).count(), 0);
@@ -604,6 +675,8 @@ test("desktop/mobile: authenticated department and real student save/submit UI a
     await studentPage.getByLabel("First name", { exact: true }).waitFor();
     assert.equal(await studentPage.getByLabel("First name", { exact: true }).inputValue(), "Beta");
     assert.equal(await studentPage.locator(".large-textarea").inputValue(), "");
+    await depthCoach.waitFor({ state: "hidden" });
+    assert.deepEqual(studentDialogs, []);
     await signOutDepth();
     await studentPage.close();
     assert.deepEqual(errors, []);

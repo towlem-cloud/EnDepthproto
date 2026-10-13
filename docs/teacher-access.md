@@ -8,13 +8,13 @@
 
 The seven approved English teachers have been added to the original EnScribe site's audience and teacher list. If you are signed in to ChatGPT using another email, sign out and use your approved school account. Student access to that restricted site must be arranged separately.
 
-## Combined portal after production rollout
+## Published combined portal
 
-Once the production department rollout is complete, open:
+Open:
 
 https://en-depthproto.vercel.app/?tool=department
 
-Sign in with the individual code Morgan supplies privately. Your school email is optional for existing codes; when entered, it must match the saved teacher account. One sign-in opens both tools. Email by itself does not grant access. Keep your code private and sign out when using a shared computer. A preview demo may have a different account registry; codes created in live EnDepth are not yet verified there.
+Sign in with the individual code Morgan supplies privately. Your school email is optional for existing codes; when entered, it must match the saved teacher account. One sign-in opens both tools. Email by itself does not grant access. Keep your code private and sign out when using a shared computer.
 
 ## EnScribe Writing Studio
 
@@ -30,7 +30,9 @@ Review students' preserved originals, drafts, revision explanations, coaching hi
 
 Select **EnDepth Teacher Desk** using the same sign-in. Create and manage discussion-preparation assignments, share their student assignment links, and review submissions. Existing assignments and student links keep their URLs.
 
-After saving an assignment, use **Individual student access** in its editor to issue a private code for each student. Deliver that code with the assignment link privately. Students enter the code, work under the identity their teacher issued, and sign out when finished. Reissuing a code revokes earlier access and keeps existing submissions. An email or the shared pilot code cannot overwrite someone else's preparation.
+After saving an assignment, select **Edit** on its assignment card. Below **Save assignment**, expand **Issue individual student access**. Enter the student's first name, last name and email, then select **Issue private student code**. Copy the code shown before dismissing it, and deliver that student their code plus the student assignment link privately. The site does not email the code or display previously issued codes later. Students enter the code, work under the identity their teacher issued, and sign out when finished. If a code is lost, issuing another for the same assignment and student email replaces their previous access and keeps existing submissions. An email or the shared pilot code cannot overwrite someone else's preparation.
+
+Students begin with their own initial written response. The Socratic coach opens automatically once that response contains at least **40 words**. There is no separate coach code or unlock button. If the response drops below the minimum, coaching stays unavailable until it meets the minimum again. Unlocking does not submit the preparation or use a coaching exchange; students still use **Send thinking** for coaching and **Submit preparation** when ready.
 
 ## Try the tools before using a class assignment
 

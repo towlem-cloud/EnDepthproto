@@ -748,7 +748,7 @@ test("EnDepth endpoint preserves richer moderated coaching, retries, concurrency
       email: "privateidentity@example.invalid",
       invitationToken: "private-invitation-token",
       initialResponse:
-        "A fictional shared garden may reveal disagreement in a community.",
+        "The fictional garden gives neighbors a shared responsibility, but it also exposes disagreement about priorities. Residents must decide who benefits from the shared space, whose preferences guide decisions, and whether working together changes relationships beyond the garden's immediate physical boundaries.",
       evidence: "The garden gave neighbors shared responsibility.",
       significance: "Shared responsibility need not imply agreement.",
       selectedMove: "complicate",

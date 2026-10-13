@@ -3,6 +3,10 @@ import { reserveDepth, finishDepth } from "../lib/depth-coach-requests.js";
 import { getAssignmentById } from "../lib/endepth-db.js";
 import { requireDepthStudent } from "../lib/depth-student-access.js";
 import { HttpError, sameOrigin } from "../lib/department-security.js";
+import {
+  MIN_INITIAL_RESPONSE_WORDS,
+  initialResponseMeetsMinimum,
+} from "../lib/depth-response-policy.js";
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const MODERATION_MODEL =
@@ -291,6 +295,12 @@ export default {
       studentCoachKey = sandboxKey || studentAccess.coachKey;
     } catch (error) {
       return json({ error: error.status ? error.message : "Assignment access unavailable." }, error.status || 503);
+    }
+
+    if (!initialResponseMeetsMinimum(body?.initialResponse)) {
+      return json({
+        error: `Write at least ${MIN_INITIAL_RESPONSE_WORDS} words in your initial response before using the coach.`,
+      }, 400);
     }
 
     const messages = Array.isArray(body?.messages) ? body.messages : [];
