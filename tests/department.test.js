@@ -106,6 +106,62 @@ test("legacy short administrator codes bootstrap with normalized environment inp
     await adminDb.close();
   }
 });
+test("verified additional teachers onboard once while existing email matches keep their credentials and state", async () => {
+  const rosterDb = new PGlite();
+  function rosterSql(strings, ...values) {
+    let text = strings[0];
+    values.forEach((_, index) => (text += "$" + (index + 1) + strings[index + 1]));
+    return rosterDb.query(text, values).then((result) => result.rows);
+  }
+  try {
+    await rosterDb.exec(`
+      CREATE TABLE endepth_teachers (
+        teacher_id TEXT PRIMARY KEY,slug TEXT UNIQUE NOT NULL,
+        display_name TEXT NOT NULL,email TEXT NOT NULL DEFAULT '',
+        code_salt TEXT NOT NULL,code_hash TEXT NOT NULL,active BOOLEAN NOT NULL DEFAULT TRUE,
+        auth_scheme TEXT NOT NULL DEFAULT 'legacy-sha256',credential_version INTEGER NOT NULL DEFAULT 1,
+        activation_state TEXT NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await security.onboard(rosterSql);
+    const inserted = await rosterSql`SELECT * FROM endepth_teachers ORDER BY teacher_id`;
+    for (const [email, name] of [
+      ["jackoboicet@ensworth.com", "Tom Jackoboice"],
+      ["williamsr@ensworth.com", "Russ Williams"],
+    ]) {
+      const teacher = inserted.find((row) => row.email === email);
+      assert.ok(teacher, email);
+      assert.equal(teacher.display_name, name);
+      assert.equal(teacher.active, false);
+      assert.equal(teacher.activation_state, "awaiting activation");
+      assert.equal(teacher.code_hash, "");
+    }
+    await security.onboard(rosterSql);
+    assert.deepEqual(await rosterSql`SELECT * FROM endepth_teachers ORDER BY teacher_id`, inserted);
+
+    // Model accounts that already have credentials, names and activation decisions.
+    const tomCode = "synthetic-existing-tom-code", tomSalt = "synthetic-tom-salt";
+    const tomHash = security.digest(`${tomSalt}:${tomCode}`);
+    const russCode = "synthetic-existing-russ-code", russSalt = "synthetic-russ-salt";
+    const russHash = await security.passwordHash(russCode, russSalt);
+    await rosterSql`UPDATE endepth_teachers SET email='JackoboiceT@ensworth.com',display_name='Saved Tom name',
+      code_salt=${tomSalt},code_hash=${tomHash},auth_scheme='legacy-sha256',credential_version=4,
+      active=TRUE,activation_state='active' WHERE email='jackoboicet@ensworth.com'`;
+    await rosterSql`UPDATE endepth_teachers SET email='WilliamsR@ensworth.com',display_name='Saved Russ name',
+      code_salt=${russSalt},code_hash=${russHash},auth_scheme='scrypt',credential_version=3,
+      active=FALSE,activation_state='disabled' WHERE email='williamsr@ensworth.com'`;
+    const preserved = await rosterSql`SELECT * FROM endepth_teachers ORDER BY teacher_id`;
+    await security.onboard(rosterSql);
+    await security.onboard(rosterSql);
+    const after = await rosterSql`SELECT * FROM endepth_teachers ORDER BY teacher_id`;
+    assert.deepEqual(after, preserved);
+    assert.equal(await security.passwordMatches(tomCode, after.find((row) => row.email === "JackoboiceT@ensworth.com")), true);
+    assert.equal(await security.passwordMatches(russCode, after.find((row) => row.email === "WilliamsR@ensworth.com")), true);
+  } finally {
+    await rosterDb.close();
+  }
+});
 test("shared sessions preserve legacy IDs, records, credentials and links; approved roster activates individually", async () => {
   const { ensurePilotSchema } = await import("../lib/endepth-db.js");
   await ensurePilotSchema();
@@ -173,10 +229,10 @@ test("shared sessions preserve legacy IDs, records, credentials and links; appro
   assert.equal((await listSubmissionsForStaff(morgan)).length, 1);
   const accounts =
     await sql`SELECT * FROM endepth_teachers WHERE email = ANY(${security.APPROVED})`;
-  assert.equal(accounts.length, 7);
+  assert.equal(accounts.length, 9);
   assert.equal(
     accounts.filter((r) => r.activation_state === "awaiting activation").length,
-    6,
+    8,
   );
   for (const [index, row] of accounts.entries()) {
     const code =

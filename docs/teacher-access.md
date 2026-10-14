@@ -16,6 +16,8 @@ https://en-depthproto.vercel.app/?tool=department
 
 Sign in with the individual code Morgan supplies privately. Your school email is optional for existing codes; when entered, it must match the saved teacher account. One sign-in opens both tools. Email by itself does not grant access. Keep your code private and sign out when using a shared computer.
 
+The combined portal's approved roster also includes Tom Jackoboice (`jackoboicet@ensworth.com`) and Russ Williams (`williamsr@ensworth.com`). As administrator, select **Add approved roster without changing existing accounts** to add missing roster entries. Existing email matches keep their account IDs, codes and activation states. New entries appear as **awaiting activation**; select **Activate & issue individual code** for each new teacher, save the code shown and deliver it privately. This does not send an email. The original standalone ChatGPT Site has a separate access list.
+
 ## EnScribe Writing Studio
 
 Select **EnScribe Writing Studio** to create a writing assignment. Add your course, section, prompt, instructions, and optional teacher rubric. Save the assignment, then open it when students should begin.
