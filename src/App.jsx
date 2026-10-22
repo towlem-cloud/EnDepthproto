@@ -1,5 +1,6 @@
 import DepartmentPortal from "./DepartmentPortal.jsx";
 import EnScribeStudent from "./EnScribeStudent.jsx";
+import SchoolGoogleStudent from "./SchoolGoogleStudent.jsx";
 import "./department.css";
 import React, { useMemo, useState } from "react";
 import "./styles.css";
@@ -59,7 +60,8 @@ export default function App() {
   const [assignment] = useState(loadAssignment);
 
   const params=new URLSearchParams(window.location.search);
-  if(params.get("tool")==="enscribe" && params.get("writer")) return <EnScribeStudent studentId={params.get("writer")} />;
+  if(params.get("tool")==="enscribe" && params.get("writer")) return <EnScribeStudent studentId={params.get("writer")} assignmentSlug={assignmentSlug} />;
+  if(params.get("tool")==="enscribe" && assignmentSlug) return <SchoolGoogleStudent assignmentSlug={assignmentSlug} />;
   if(params.get("tool")==="department") return <DepartmentPortal />;
 
   if (assignmentSlug) {

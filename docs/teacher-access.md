@@ -1,14 +1,6 @@
 # Teacher access to EnScribe and EnDepth
 
-## Published sites available now
-
-**EnScribe:** open https://ensworth-writing-studio.towlem.chatgpt.site/ and sign in with your ChatGPT account using the school email approved by Morgan. Select **Teacher desk**, then **New assignment**. Your EnDepth code does not sign you into this site.
-
-**EnDepth:** open https://en-depthproto.vercel.app/ and use your existing individual teacher code in the teacher portal. These are separate published sites with separate sign-ins.
-
-The seven approved English teachers have been added to the original EnScribe site's audience and teacher list. If you are signed in to ChatGPT using another email, sign out and use your approved school account. Student access to that restricted site must be arranged separately.
-
-## Published combined portal
+## Department portal
 
 Open:
 
@@ -17,6 +9,14 @@ https://en-depthproto.vercel.app/?tool=department
 Sign in with the individual code Morgan supplies privately. Your school email is optional for existing codes; when entered, it must match the saved teacher account. One sign-in opens both tools. Email by itself does not grant access. Keep your code private and sign out when using a shared computer.
 
 The combined portal's approved roster also includes Tom Jackoboice (`jackoboicet@ensworth.com`) and Russ Williams (`williamsr@ensworth.com`). As administrator, select **Add approved roster without changing existing accounts** to add missing roster entries. Existing email matches keep their account IDs, codes and activation states. New entries appear as **awaiting activation**; select **Activate & issue individual code** for each new teacher, save the code shown and deliver it privately. This does not send an email. The original standalone ChatGPT Site has a separate access list.
+
+## Student entry
+
+Students use the link issued from their assignment in the department portal. They do not need permission to enter the original ChatGPT Site. Existing private student links continue to work.
+
+The optional **school Google sign-in** workflow needs its migration and one-time school setup before it is available. After the administrator connects the school's Google client and approved student email domains, a teacher can enable Google access for an open EnScribe assignment and share one class link. Students sign in with their school Google accounts and receive their own workspaces. Typing an email is never sufficient to open a draft. Google student sign-in does not grant teacher or administrator access.
+
+See [School Google access](school-google-access.md) for setup, verification, and rollback. Do not announce this workflow as live until the actual school Google sign-in has been verified.
 
 ## EnScribe Writing Studio
 
@@ -41,3 +41,7 @@ Students begin with their own initial written response. The Socratic coach opens
 **Try EnScribe — fictional example** and **Try EnDepth — fictional example** create clearly marked testing work. The EnScribe example provides an **Open fictional workspace** button. These examples are separate from live student records.
 
 If an individual code is unavailable or an account is disabled, contact Morgan. An administrator must issue or reactivate access; changing email or using another teacher's code is not an access method.
+
+## Original standalone EnScribe
+
+The separate original Site remains at https://ensworth-writing-studio.towlem.chatgpt.site/. Its private data and access settings have not been migrated by the school Google feature. A restricted Site audience can reject a student before its assignment-code screen loads; an assignment code cannot satisfy that outer permission check. The department portal's class links and Google sign-in belong to the department application, and do not automatically apply to assignments or codes created in the original Site.

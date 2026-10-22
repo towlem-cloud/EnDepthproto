@@ -7,7 +7,7 @@ const foci = [
   "Analysis",
   "Grammar/usage/mechanics",
 ];
-export default function EnScribeStudent({ studentId }) {
+export default function EnScribeStudent({ studentId, assignmentSlug = "" }) {
   const [data, setData] = useState(null),
     [draft, setDraft] = useState(""),
     [reflection, setReflection] = useState(""),
@@ -100,7 +100,9 @@ export default function EnScribeStudent({ studentId }) {
       await post("student-logout", { studentId });
       if (epoch !== epochRef.current) return;
       clearWriting(); setError("");
-      setNotice("Signed out. To return, open the private student link from your teacher.");
+      setNotice(assignmentSlug
+        ? "Signed out. Use your class link to sign in with school Google again."
+        : "Signed out. To return, open the private student link from your teacher.");
     });
   }
   async function save(submit = false) {
@@ -164,7 +166,8 @@ export default function EnScribeStudent({ studentId }) {
         <StudioHeader />
         <div className="department-body">
           <h1>EnScribe Writing Studio</h1>
-          <p>{busy ? "Opening your private workspace…" : "Open the private student link provided by your teacher to access your writing."}</p>
+          <p>{busy ? "Opening your private workspace…" : assignmentSlug ? "Use your class link to sign in with your school Google account again." : "Open the private student link provided by your teacher to access your writing."}</p>
+          {!busy && assignmentSlug && <p><a href={"/?tool=enscribe&assignment=" + encodeURIComponent(assignmentSlug)}>Sign in with school Google again</a></p>}
           {error && <p role="alert">{error}</p>}
           {notice && <p role="status">{notice}</p>}
         </div>

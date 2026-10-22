@@ -1,5 +1,22 @@
-import { writeFile } from "node:fs/promises";
-import { migrationSql } from "../lib/department-migration.js";
+import { readFile, writeFile } from "node:fs/promises";
+
+// The optional Google feature has one SQL source; all reviewed SQL Editor
+// artifacts and the runtime schema export are rendered from the same body.
+const sourceUrl = new URL("../migrations/department.sql", import.meta.url);
+const startMarker = "-- BEGIN OPTIONAL SCHOOL GOOGLE ACCESS";
+const endMarker = "-- END OPTIONAL SCHOOL GOOGLE ACCESS";
+let source = await readFile(sourceUrl, "utf8");
+const start = source.indexOf(startMarker);
+if (start >= 0) {
+  const end = source.indexOf(endMarker, start);
+  if (end < 0) throw new Error("School Google SQL source marker is incomplete.");
+  source = source.slice(0, start) + source.slice(end + endMarker.length);
+}
+const school = await readFile(new URL("../lib/school-google-schema.sql", import.meta.url), "utf8");
+source = source.trimEnd() + "\n\n" + startMarker + "\n" + school.trimEnd() + "\n" + endMarker + "\n";
+await writeFile(sourceUrl, source);
+await writeFile(new URL("../lib/department-schema.js", import.meta.url), `export default ${JSON.stringify(source)};\n`);
+const { migrationSql } = await import("../lib/department-migration.js");
 
 const preview = `-- Select Neon branch preview/feature/department-tools and database neondb.
 -- Run the complete file in the SQL Editor. Do not use this preview validator on main.
