@@ -13,6 +13,7 @@ const tables = [
   "department_sessions", "department_rate_limits", "enscribe_assignments",
   "enscribe_students", "enscribe_revisions", "enscribe_checks",
   "enscribe_sessions", "endepth_student_access", "endepth_student_sessions",
+  "department_school_google_settings", "enscribe_school_google_nonces",
 ];
 
 // This is a local PostgreSQL/WASM fixture. No connection URL, external driver,
@@ -121,6 +122,11 @@ test("production first run preserves pilot records, credentials, links, disabled
     }
     assert.deepEqual(after, before);
     for (const name of tables.slice(4)) {
+      if (name === "department_school_google_settings") {
+        const settings = (await db.query(`SELECT id,enabled,client_id,allowed_domains,config_version FROM ${name}`)).rows;
+        assert.deepEqual(settings, [{ id: 1, enabled: false, client_id: "", allowed_domains: [], config_version: 1 }]);
+        continue;
+      }
       assert.equal((await db.query(`SELECT COUNT(*)::INTEGER AS count FROM ${name}`)).rows[0].count, 0);
     }
     assert.equal((await db.query("SELECT to_regclass('pg_temp.department_migration_before') AS snapshot")).rows[0].snapshot, null);
@@ -154,6 +160,14 @@ test("production rerun preserves all existing department data and authentication
         VALUES ('writer-existing','request-existing','pending','preserved-request-hash','{"question":"Preserved question"}','preserved-writing-lease');
       INSERT INTO endepth_coach_requests(assignment_id,usage_key,request_id,request_hash,lease,state,reply)
         VALUES ('assignment-existing','synthetic@example.invalid','depth-request-existing','preserved-depth-hash','preserved-depth-lease','complete','{"text":"Preserved reply"}');
+      UPDATE department_school_google_settings SET enabled=TRUE,
+        client_id='1234567890-preserved.apps.googleusercontent.com',
+        allowed_domains=ARRAY['school.example.invalid'],config_version=13 WHERE id=1;
+      UPDATE enscribe_students SET google_subject='preserved-google-subject' WHERE id='writer-existing';
+      INSERT INTO enscribe_sessions(token_hash,student_id,credential_hash,teacher_version,google_config_version,expires_at)
+        VALUES ('preserved-google-session','writer-existing','preserved-student-token',7,13,'2099-01-01');
+      INSERT INTO enscribe_school_google_nonces(nonce_hash,binding_hash,assignment_id,config_version,expires_at)
+        VALUES (repeat('a',64),repeat('b',64),'writing-existing',13,'2099-01-01');
     `);
     const before = await snapshot(db);
     assert.equal(receipt(await db.exec(production)).length, tables.length + 1);

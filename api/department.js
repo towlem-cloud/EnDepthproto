@@ -9,6 +9,8 @@ import {
 import { createDepthTest } from "../lib/depth-sandbox.js";
 import { staffWriting, studentWriting } from "../lib/enscribe-service.js";
 import { staffDepthAccess, studentDepthAccess } from "../lib/depth-student-access.js";
+import { studentGoogleAccess } from "../lib/google-school-access.js";
+import { staffGoogleAccess } from "../lib/school-google-service.js";
 export default {
   async fetch(request) {
     try {
@@ -25,13 +27,17 @@ export default {
         );
       const sql = await database();
       let result;
-      if (["depth-student-login", "depth-student-session", "depth-student-logout"].includes(body.action))
+      if (["student-google-start", "student-google-login"].includes(body.action))
+        result = await studentGoogleAccess(sql, request, body);
+      else if (["depth-student-login", "depth-student-session", "depth-student-logout"].includes(body.action))
         result = await studentDepthAccess(sql, request, body);
       else if (String(body.action).startsWith("student-"))
         result = await studentWriting(sql, request, body);
       else {
         const staff = await session(request, sql);
-        if (body.action === "depth-student-invite")
+        if (["google-school-settings", "google-school-configure", "writing-google-access"].includes(body.action))
+          result = await staffGoogleAccess(sql, staff, body);
+        else if (body.action === "depth-student-invite")
           result = await staffDepthAccess(sql, staff, body);
         else if (body.action === "depth-test")
           result = await createDepthTest(sql, staff);

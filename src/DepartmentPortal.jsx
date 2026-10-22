@@ -12,6 +12,59 @@ const blank = {
   boundaries: "moderate",
   status: "draft",
 };
+
+function SchoolGoogleSettings({ run, busy }) {
+  const [settings, setSettings] = useState(null);
+  const [clientId, setClientId] = useState("");
+  const [domains, setDomains] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [saved, setSaved] = useState(false);
+  function load(next) {
+    setSettings(next);
+    setClientId(next.clientId || "");
+    setDomains((next.domains || []).join("\n"));
+    setEnabled(next.enabled === true);
+  }
+  async function refreshSettings() {
+    await run(async () => load((await post("google-school-settings")).settings));
+  }
+  useEffect(() => { refreshSettings(); }, []);
+  async function save(event) {
+    event.preventDefault();
+    setSaved(false);
+    await run(async () => {
+      const result = await post("google-school-configure", {
+        enabled,
+        clientId: clientId.trim(),
+        domains: domains.split(/[\s,;]+/).map((domain) => domain.trim()).filter(Boolean),
+      });
+      load(result.settings);
+      setSaved(true);
+    });
+  }
+  return (
+    <section className="department-google-settings">
+      <h2>School Google student access</h2>
+      <p>This optional connection starts disabled. After the one-time school setup, teachers can enable a class link so approved students sign in with their own school-managed Google accounts. Individual private student links remain available.</p>
+      <details>
+        <summary>One-time school Google setup</summary>
+        <p>Create a Google Identity Services Web application client in the school’s Google Cloud project. Add this exact Authorized JavaScript origin:</p>
+        <p><code>https://en-depthproto.vercel.app</code></p>
+        <p>Use the public Web client ID and the actual domains of school-managed student Google accounts below. The school’s Google Workspace settings must permit this sign-in. No client secret is needed in this app.</p>
+      </details>
+      {settings ? <form onSubmit={save}>
+        <p>Saved app setting: <strong>{settings.enabled ? "Google sign-in allowed" : "disabled"}</strong>. Google’s origin and school account setup must also be complete before students can sign in.</p>
+        <label>Google Web client ID<input aria-label="Google Web client ID" type="text" autoComplete="off" value={clientId} onChange={(event) => { setClientId(event.target.value); setSaved(false); }} /></label>
+        <label>Approved student Google account domains<textarea aria-label="Approved student Google account domains" rows={3} placeholder="Enter actual student account domains, one per line" value={domains} onChange={(event) => { setDomains(event.target.value); setSaved(false); }} /></label>
+        <label className="department-google-toggle"><input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false); }} />Allow school Google student sign-in</label>
+        <p>Enter only domains belonging to approved school-managed student accounts. Personal Gmail accounts and a typed email address do not grant access.</p>
+        <button disabled={busy}>Save school Google settings</button>
+        {saved && <p role="status">School Google settings saved. Each teacher must also enable the class link on the intended assignment.</p>}
+      </form> : <button className="department-secondary" disabled={busy} onClick={refreshSettings}>Load school Google settings</button>}
+    </section>
+  );
+}
+
 export default function DepartmentPortal() {
   const [staff, setStaff] = useState(null),
     [code, setCode] = useState(""),
@@ -404,6 +457,19 @@ export default function DepartmentPortal() {
                       {a.sandbox ? "— EXAMPLE TEST DATA" : ""}
                     </p>
                     <p>{a.boundaries} · Four successful checks</p>
+                    {!a.sandbox && <div className="department-google-assignment">
+                      <button className="department-secondary" disabled={busy} onClick={() => run(async () => {
+                        const result = await post("writing-google-access", { assignmentId: a.id, enabled: !a.school_google_access });
+                        if (selected?.id === a.id) setSelected(result.assignment);
+                        await refresh();
+                      })}>{a.school_google_access ? "Disable school Google class link" : "Enable school Google class link"}</button>
+                      {a.school_google_access && <>
+                        <p>Students with a verified school Google account can join from this class link; existing imported drafts match only an unambiguous verified email. Private links stay valid.</p>
+                        <p>The school Google connection must be enabled by the administrator before students can use this link. The assignment must be open.</p>
+                        <label>School Google class link<input aria-label={"School Google class link for " + a.title} readOnly value={location.origin + "/?tool=enscribe&assignment=" + encodeURIComponent(a.public_slug)} onFocus={(event) => event.target.select()} /></label>
+                        <a href={"/?tool=enscribe&assignment=" + encodeURIComponent(a.public_slug)} target="_blank" rel="noopener noreferrer">Open school Google sign-in</a>
+                      </>}
+                    </div>}
                     <div className="toolbar">
                       <button onClick={() => setDraft(a)}>
                         Edit / open / close
@@ -603,6 +669,7 @@ export default function DepartmentPortal() {
               )}
             </>
           )}
+          {staff.role === "admin" && <SchoolGoogleSettings run={run} busy={busy} />}
           {staff.role === "admin" && (
             <section>
               <h2>Approved teacher accounts</h2>
